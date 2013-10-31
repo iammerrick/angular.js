@@ -36,6 +36,7 @@ exports.trim = trim;
 exports.metadata = metadata;
 exports.scenarios = scenarios;
 exports.merge = merge;
+exports.checkBrokenLinks = checkBrokenLinks;
 exports.Doc = Doc;
 
 exports.ngVersions = function() {
@@ -109,7 +110,7 @@ exports.ngVersions = function() {
       //NON_RC_RELEASE_NUMBER is used to signal the non-RC version for the release and
       //it will always appear at the top of the list since the number is so high!
       versionMap[baseVersion].push(
-        version == baseVersion ? NON_RC_RELEASE_NUMBER : parseInt(version.match(/rc(\d+)/)[1]));
+        version == baseVersion ? NON_RC_RELEASE_NUMBER : parseInt(version.match(/rc\.?(\d+)/)[1]));
     };
 
     //flatten the map so that the RC versions occur in a natural sorted order
@@ -169,6 +170,7 @@ function Doc(text, file, line) {
   this.methods = this.methods || [];
   this.events = this.events || [];
   this.links = this.links || [];
+  this.anchors = this.anchors || [];
 }
 Doc.METADATA_IGNORE = (function() {
   var words = fs.readFileSync(__dirname + '/ignore.words', 'utf8');
@@ -211,6 +213,14 @@ Doc.prototype = {
     return words.join(' ');
   },
 
+  shortDescription : function() {
+    var text = this.description.split("\n")[0];
+    text = text.replace(/<.+?\/?>/g, '');
+    text = text.replace(/{/g,'&#123;');
+    text = text.replace(/}/g,'&#125;');
+    return text;
+  },
+
   getMinerrNamespace: function () {
     if (this.ngdoc !== 'error') {
       throw new Error('Tried to get the minErr namespace, but @ngdoc ' +
@@ -242,6 +252,14 @@ Doc.prototype = {
    * @returns {string} Absolute url
    */
   convertUrlToAbsolute: function(url) {
+    var hashIdx = url.indexOf('#');
+
+    // Lowercase hash parts of the links,
+    // so that we can keep correct API names even when the urls are lowercased.
+    if (hashIdx !== -1) {
+      url = url.substr(0, hashIdx) + url.substr(hashIdx).toLowerCase();
+    }
+
     if (url.substr(-1) == '/') return url + 'index';
     if (url.match(/\//)) return url;
     return this.section + '/' + url;
@@ -461,10 +479,19 @@ Doc.prototype = {
       (this.ngdoc === 'error' ? this.name : '') ||
       (((this.file||'').match(/.*(\/|\\)([^(\/|\\)]*)\.ngdoc/)||{})[2]) || // try to extract it from file name
       this.name; // default to name
+    this.moduleName = parseModuleName(this.id);
     this.description = this.markdown(this.description);
     this.example = this.markdown(this.example);
     this['this'] = this.markdown(this['this']);
     return this;
+
+    function parseModuleName(id) {
+      var module = id.split('.')[0];
+      if(module == 'angular') {
+        module = 'ng';
+      }
+      return module;
+    }
 
     function flush() {
       if (atName) {
@@ -482,7 +509,7 @@ Doc.prototype = {
             description:self.markdown(text.replace(match[0], match[6])),
             type: optional ? match[1].substring(0, match[1].length-1) : match[1],
             optional: optional,
-            'default':match[5]
+            default: match[5]
           };
           self.param.push(param);
         } else if (atName == 'returns' || atName == 'return') {
@@ -569,6 +596,8 @@ Doc.prototype = {
       dom.h('Example', self.example, dom.html);
     });
 
+    self.anchors = dom.anchors;
+
     return dom.toString();
 
     //////////////////////////
@@ -606,7 +635,7 @@ Doc.prototype = {
       dom.html('<a href="api/ngAnimate.$animate">Click here</a> to learn more about the steps involved in the animation.');
     }
     if(params.length > 0) {
-      dom.html('<h2 id="parameters">Parameters</h2>');
+      dom.html('<h2>Parameters</h2>');
       dom.html('<table class="variables-matrix table table-bordered table-striped">');
       dom.html('<thead>');
       dom.html('<tr>');
@@ -629,7 +658,6 @@ Doc.prototype = {
           types = types.substr(0,limit);
         }
         types = types.split(/\|(?![\(\)\w\|\s]+>)/);
-        var description = param.description;
         if (param.optional) {
           name += ' <div><em>(optional)</em></div>';
         }
@@ -642,8 +670,15 @@ Doc.prototype = {
           dom.text(type);
           dom.html('</a>');
         }
+
         dom.html('</td>');
-        dom.html('<td>' + description + '</td>');
+        var description = '<td>';
+        description += param.description;
+        if (param.default) {
+          description += ' <p><em>(default: ' + param.default + ')</em></p>';
+        }
+        description += '</td>';
+        dom.html(description);
         dom.html('</tr>');
       };
       dom.html('</tbody>');
@@ -654,7 +689,7 @@ Doc.prototype = {
   html_usage_returns: function(dom) {
     var self = this;
     if (self.returns) {
-      dom.html('<h2 id="returns">Returns</h2>');
+      dom.html('<h2>Returns</h2>');
       dom.html('<table class="variables-matrix">');
       dom.html('<tr>');
       dom.html('<td>');
@@ -714,7 +749,7 @@ Doc.prototype = {
   html_usage_directive: function(dom){
     var self = this;
     dom.h('Usage', function() {
-      var restrict = self.restrict || 'AC';
+      var restrict = self.restrict || 'A';
 
       if (restrict.match(/E/)) {
         dom.html('<p>');
@@ -778,7 +813,7 @@ Doc.prototype = {
           dom.text(prefix);
           dom.text(param.optional ? '[' : '');
           var parts = param.name.split('|');
-          dom.text(parts[skipSelf ? 0 : 1] || parts[0]);
+          dom.text(dashCase(parts[skipSelf ? 0 : 1] || parts[0]));
         }
         if (BOOLEAN_ATTR[param.name]) {
           dom.text(param.optional ? ']' : '');
@@ -1088,6 +1123,8 @@ function metadata(docs){
       name: title(doc),
       shortName: shortName,
       type: doc.ngdoc,
+      moduleName: doc.moduleName,
+      shortDescription: doc.shortDescription(),
       keywords:doc.keywords()
     });
   });
@@ -1205,22 +1242,7 @@ function merge(docs){
   });
 
   for(var i = 0; i < docs.length;) {
-    var doc = docs[i];
-
-    // check links - do they exist ?
-    doc.links.forEach(function(link) {
-      // convert #id to path#id
-      if (link[0] == '#') {
-        link = doc.section + '/' + doc.id.split('#').shift() + link;
-      }
-      link = link.split('#').shift();
-      if (!byFullId[link]) {
-        console.log('WARNING: In ' + doc.section + '/' + doc.id + ', non existing link: "' + link + '"');
-      }
-    });
-
-    // merge into parents
-    if (findParent(doc, 'method') || findParent(doc, 'property') || findParent(doc, 'event')) {
+    if (findParent(docs[i], 'method') || findParent(docs[i], 'property') || findParent(docs[i], 'event')) {
       docs.splice(i, 1);
     } else {
       i++;
@@ -1248,6 +1270,36 @@ function merge(docs){
   }
 }
 //////////////////////////////////////////////////////////
+
+
+function checkBrokenLinks(docs) {
+  var byFullId = Object.create(null);
+
+  docs.forEach(function(doc) {
+    byFullId[doc.section + '/' + doc.id] = doc;
+  });
+
+  docs.forEach(function(doc) {
+    doc.links.forEach(function(link) {
+      // convert #id to path#id
+      if (link[0] == '#') {
+        link = doc.section + '/' + doc.id.split('#').shift() + link;
+      }
+
+      var parts = link.split('#');
+      var pageLink = parts[0];
+      var anchorLink = parts[1];
+      var linkedPage = byFullId[pageLink];
+
+      if (!linkedPage) {
+        console.log('WARNING: ' + doc.section + '/' + doc.id + ' (defined in ' + doc.file + ') points to a non existing page "' + link + '"!');
+      } else if (anchorLink && linkedPage.anchors.indexOf(anchorLink) === -1) {
+        console.log('WARNING: ' + doc.section + '/' + doc.id + ' (defined in ' + doc.file + ') points to a non existing anchor "' + link + '"!');
+      }
+    });
+  });
+}
+
 
 function property(name) {
   return function(value){
@@ -1278,7 +1330,7 @@ function explainModuleInstallation(moduleName){
     '<a href="http://bower.io/">Bower</a> (as <code>' + modulePackage + '</code>), ' +
     'and on <a href="http://code.angularjs.org/">code.angularjs.org</a>.</p>' +
 
-    '<p>Then load the module in your application by adding it as a dependant module:</p><pre><code>' +
+    '<p>Then load the module in your application by adding it as a dependent module:</p><pre><code>' +
     '    angular.module(\'app\', [\'' + ngMod + '\']);</pre></code>' +
 
     '<p>With that you\'re ready to get started!</p>';

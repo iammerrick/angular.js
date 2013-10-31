@@ -23,6 +23,7 @@ ngRouteModule.directive('ngView', ngViewFactory);
  * The enter and leave animation occur concurrently.
  *
  * @scope
+ * @priority 400
  * @example
     <example module="ngViewExample" deps="angular-route.js" animations="true">
       <file name="index.html">
@@ -112,20 +113,21 @@ ngRouteModule.directive('ngView', ngViewFactory);
       </file>
 
       <file name="script.js">
-        angular.module('ngViewExample', ['ngRoute', 'ngAnimate'], function($routeProvider, $locationProvider) {
-          $routeProvider.when('/Book/:bookId', {
-            templateUrl: 'book.html',
-            controller: BookCntl,
-            controllerAs: 'book'
-          });
-          $routeProvider.when('/Book/:bookId/ch/:chapterId', {
-            templateUrl: 'chapter.html',
-            controller: ChapterCntl,
-            controllerAs: 'chapter'
-          });
+        angular.module('ngViewExample', ['ngRoute', 'ngAnimate'],
+          function($routeProvider, $locationProvider) {
+            $routeProvider.when('/Book/:bookId', {
+              templateUrl: 'book.html',
+              controller: BookCntl,
+              controllerAs: 'book'
+            });
+            $routeProvider.when('/Book/:bookId/ch/:chapterId', {
+              templateUrl: 'chapter.html',
+              controller: ChapterCntl,
+              controllerAs: 'chapter'
+            });
 
-          // configure html5 to get links working on jsfiddle
-          $locationProvider.html5Mode(true);
+            // configure html5 to get links working on jsfiddle
+            $locationProvider.html5Mode(true);
         });
 
         function MainCntl($route, $routeParams, $location) {
@@ -176,6 +178,7 @@ function ngViewFactory(   $route,   $anchorScroll,   $compile,   $controller,   
   return {
     restrict: 'ECA',
     terminal: true,
+    priority: 400,
     transclude: 'element',
     compile: function(element, attr, linker) {
       return function(scope, $element, attr) {
@@ -204,10 +207,10 @@ function ngViewFactory(   $route,   $anchorScroll,   $compile,   $controller,   
           if (template) {
             var newScope = scope.$new();
             linker(newScope, function(clone) {
-              cleanupLastView();
-
               clone.html(template);
-              $animate.enter(clone, null, $element);
+              $animate.enter(clone, null, currentElement || $element);
+
+              cleanupLastView();
 
               var link = $compile(clone.contents()),
                   current = $route.current;
@@ -222,7 +225,7 @@ function ngViewFactory(   $route,   $anchorScroll,   $compile,   $controller,   
                   currentScope[current.controllerAs] = controller;
                 }
                 clone.data('$ngControllerController', controller);
-                clone.contents().data('$ngControllerController', controller);
+                clone.children().data('$ngControllerController', controller);
               }
 
               link(currentScope);
@@ -236,7 +239,7 @@ function ngViewFactory(   $route,   $anchorScroll,   $compile,   $controller,   
             cleanupLastView();
           }
         }
-      }
+      };
     }
   };
 }

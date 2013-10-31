@@ -479,6 +479,30 @@ describe('jqLite', function() {
 
   describe('class', function() {
 
+    it('should properly do  with SVG elements', function() {
+      // this is a jqLite & SVG only test (jquery doesn't behave this way right now, which is a bug)
+      if (!window.SVGElement || !_jqLiteMode) return;
+      var svg = jqLite('<svg><rect></rect></svg>');
+      var rect = svg.children();
+
+      expect(rect.hasClass('foo-class')).toBe(false);
+      rect.addClass('foo-class');
+      expect(rect.hasClass('foo-class')).toBe(true);
+      rect.removeClass('foo-class');
+      expect(rect.hasClass('foo-class')).toBe(false);
+    });
+
+
+    it('should ignore comment elements', function() {
+      var comment = jqLite(document.createComment('something'));
+
+      comment.addClass('whatever');
+      comment.hasClass('whatever');
+      comment.toggleClass('whatever');
+      comment.removeClass('whatever');
+    });
+
+
     describe('hasClass', function() {
       it('should check class', function() {
         var selector = jqLite([a, b]);
@@ -1329,6 +1353,18 @@ describe('jqLite', function() {
       event = pokeSpy.mostRecentCall.args[0];
       expect(event.preventDefault).toBeDefined();
     });
+
+    it('should pass data as an additional argument', function() {
+      var element = jqLite('<a>poke</a>'),
+          pokeSpy = jasmine.createSpy('poke'),
+          data;
+
+      element.on('click', pokeSpy);
+
+      element.triggerHandler('click', [{hello: "world"}]);
+      data = pokeSpy.mostRecentCall.args[1];
+      expect(data.hello).toBe("world");
+    });
   });
 
 
@@ -1352,6 +1388,7 @@ describe('jqLite', function() {
      expect(camelCase('-moz-foo-bar')).toBe('MozFooBar');
      expect(camelCase('-webkit-foo-bar')).toBe('webkitFooBar');
      expect(camelCase('-webkit-foo-bar')).toBe('webkitFooBar');
-   })
+   });
   });
+
 });

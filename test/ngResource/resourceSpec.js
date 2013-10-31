@@ -32,6 +32,16 @@ describe("resource", function() {
   });
 
 
+  it('should not include a request body when calling $delete', function() {
+    $httpBackend.expect('DELETE', '/fooresource', null).respond({});
+    var Resource = $resource('/fooresource');
+    var resource = new Resource({ foo: 'bar' });
+
+    resource.$delete();
+    $httpBackend.flush();
+  });
+
+
   it("should build resource", function() {
     expect(typeof CreditCard).toBe('function');
     expect(typeof CreditCard.get).toBe('function');
@@ -229,6 +239,13 @@ describe("resource", function() {
     $httpBackend.expect('GET', '/1/1');
 
     R.get({id:1});
+  });
+
+
+  it('should throw an exception if a param is called "hasOwnProperty"', function() {
+     expect(function() {
+      $resource('/:hasOwnProperty').get();
+     }).toThrowMinErr('$resource','badname', "hasOwnProperty is not a valid parameter name");
   });
 
 
@@ -629,6 +646,38 @@ describe("resource", function() {
         $httpBackend.flush();
 
         expect(cc.url).toBe('/new-id');
+      });
+
+      it('should pass the same transformed value to success callbacks and to promises', function() {
+        $httpBackend.expect('GET', '/CreditCard').respond(200, { value: 'original' });
+
+        var transformResponse = function (response) {
+          return { value: 'transformed' };
+        };
+
+        var CreditCard = $resource('/CreditCard', {}, {
+          call: {
+            method: 'get',
+            interceptor: { response: transformResponse }
+          }
+        });
+
+        var successValue,
+            promiseValue;
+
+        var cc = new CreditCard({ name: 'Me' });
+
+        var req = cc.$call({}, function (result) {
+          successValue = result;
+        });
+        req.then(function (result) {
+          promiseValue = result;
+        });
+
+        $httpBackend.flush();
+        expect(successValue).toEqual({ value: 'transformed' });
+        expect(promiseValue).toEqual({ value: 'transformed' });
+        expect(successValue).toBe(promiseValue);
       });
     });
 

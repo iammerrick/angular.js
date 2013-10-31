@@ -64,14 +64,16 @@ describe('ngInclude', function() {
   }));
 
 
-  it('should NOT use untrusted expressions ', inject(putIntoCache('myUrl', '{{name}} text'),
+  it('should NOT use untrusted URL expressions ', inject(putIntoCache('myUrl', '{{name}} text'),
       function($rootScope, $compile, $sce) {
     element = jqLite('<ng:include src="url"></ng:include>');
     jqLite(document.body).append(element);
     element = $compile(element)($rootScope);
     $rootScope.name = 'chirayu';
-    $rootScope.url = 'myUrl';
-    expect($rootScope.$digest).toThrow();
+    $rootScope.url = 'http://example.com/myUrl';
+    expect(function() { $rootScope.$digest(); }).toThrowMinErr(
+        '$sce', 'insecurl',
+        /Blocked loading resource from url not allowed by \$sceDelegate policy.  URL: http:\/\/example.com\/myUrl.*/);
     jqLite(document.body).html('');
   }));
 
@@ -82,10 +84,13 @@ describe('ngInclude', function() {
     jqLite(document.body).append(element);
     element = $compile(element)($rootScope);
     $rootScope.name = 'chirayu';
-    $rootScope.url = $sce.trustAsUrl('myUrl');
-    expect($rootScope.$digest).toThrow();
+    $rootScope.url = $sce.trustAsUrl('http://example.com/myUrl');
+    expect(function() { $rootScope.$digest(); }).toThrowMinErr(
+        '$sce', 'insecurl',
+        /Blocked loading resource from url not allowed by \$sceDelegate policy.  URL: http:\/\/example.com\/myUrl.*/);
     jqLite(document.body).html('');
   }));
+
 
   it('should remove previously included text if a falsy value is bound to src', inject(
         putIntoCache('myUrl', '{{name}}'),
@@ -278,6 +283,32 @@ describe('ngInclude', function() {
     $rootScope.tpl = '';
     $rootScope.$digest();
     dealoc(element);
+  }));
+
+
+  it('should not break attribute bindings on the same element', inject(function($compile, $rootScope, $httpBackend) {
+    // regression #3793
+
+    element = $compile('<div><span foo="#/{{hrefUrl}}" ng:include="includeUrl"></span></div>')($rootScope);
+    $httpBackend.expect('GET', 'url1').respond('template text 1');
+    $rootScope.hrefUrl = 'fooUrl1';
+    $rootScope.includeUrl = 'url1';
+    $rootScope.$digest();
+    $httpBackend.flush();
+    expect(element.text()).toBe('template text 1');
+    expect(element.find('span').attr('foo')).toBe('#/fooUrl1');
+
+    $httpBackend.expect('GET', 'url2').respond('template text 2');
+    $rootScope.includeUrl = 'url2';
+    $rootScope.$digest();
+    $httpBackend.flush();
+    expect(element.text()).toBe('template text 2');
+    expect(element.find('span').attr('foo')).toBe('#/fooUrl1');
+
+    $rootScope.hrefUrl = 'fooUrl2';
+    $rootScope.$digest();
+    expect(element.text()).toBe('template text 2');
+    expect(element.find('span').attr('foo')).toBe('#/fooUrl2');
   }));
 
 

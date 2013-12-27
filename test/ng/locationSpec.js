@@ -10,6 +10,55 @@ describe('$location', function() {
     jqLite(document).off('click');
   });
 
+
+  describe('File Protocol', function () {
+    var urlParsingNodePlaceholder;
+
+    beforeEach(inject(function ($sniffer) {
+      if ($sniffer.msie) return;
+
+      urlParsingNodePlaceholder = urlParsingNode;
+
+      //temporarily overriding the DOM element
+      //with output from IE, if not in IE
+      urlParsingNode = {
+        hash : "#/C:/",
+        host : "",
+        hostname : "",
+        href : "file:///C:/base#!/C:/foo",
+        pathname : "/C:/foo",
+        port : "",
+        protocol : "file:",
+        search : "",
+        setAttribute: angular.noop
+      };
+    }));
+
+    afterEach(inject(function ($sniffer) {
+      if ($sniffer.msie) return;
+      //reset urlParsingNode
+      urlParsingNode = urlParsingNodePlaceholder;
+    }));
+
+
+    it('should not include the drive name in path() on WIN', function (){
+      //See issue #4680 for details
+      url = new LocationHashbangUrl('file:///base', '#!');
+      url.$$parse('file:///base#!/foo?a=b&c#hash');
+
+      expect(url.path()).toBe('/foo');
+    });
+
+
+    it('should include the drive name if it was provided in the input url', function () {
+      url = new LocationHashbangUrl('file:///base', '#!');
+      url.$$parse('file:///base#!/C:/foo?a=b&c#hash');
+
+      expect(url.path()).toBe('/C:/foo');
+    });
+  });
+
+
   describe('NewUrl', function() {
     beforeEach(function() {
       url = new LocationHtml5Url('http://www.domain.com:9877/');
@@ -274,7 +323,7 @@ describe('$location', function() {
     });
 
 
-    it('should parse hashband url into path and search', function() {
+    it('should parse hashbang url into path and search', function() {
       expect(url.protocol()).toBe('http');
       expect(url.host()).toBe('www.server.org');
       expect(url.port()).toBe(1234);
@@ -1180,6 +1229,31 @@ describe('$location', function() {
       });
       browserTrigger(button, 'click');
     }));
+
+
+    it('should not throw when clicking an SVGAElement link', function() {
+      var base;
+      module(function($locationProvider) {
+        return function($browser) {
+          window.location.hash = '!someHash';
+          $browser.url(base = window.location.href);
+          base = base.split('#')[0];
+          $locationProvider.hashPrefix('!');
+        }
+      });
+      inject(function($rootScope, $compile, $browser, $rootElement, $document, $location) {
+        // we need to do this otherwise we can't simulate events
+        $document.find('body').append($rootElement);
+        var template = '<svg><g><a xlink:href="#!/view1"><circle r="50"></circle></a></g></svg>';
+        var element = $compile(template)($rootScope);
+
+        $rootElement.append(element);
+        var av1 = $rootElement.find('a').eq(0);
+        expect(function() {
+          browserTrigger(av1, 'click');
+        }).not.toThrow();
+      });
+    });
   });
 
 

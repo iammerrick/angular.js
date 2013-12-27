@@ -80,7 +80,7 @@
     -assertArgFn,
     -assertNotHasOwnProperty,
     -getter,
-    -getBlockElements
+    -getBlockElements,
 
 */
 
@@ -213,7 +213,9 @@ function forEach(obj, iterator, context) {
   if (obj) {
     if (isFunction(obj)){
       for (key in obj) {
-        if (key != 'prototype' && key != 'length' && key != 'name' && obj.hasOwnProperty(key)) {
+        // Need to check if hasOwnProperty exists,
+        // as on IE8 the result of querySelectorAll is an object without a hasOwnProperty function
+        if (key != 'prototype' && key != 'length' && key != 'name' && (!obj.hasOwnProperty || obj.hasOwnProperty(key))) {
           iterator.call(context, obj[key], key);
         }
       }
@@ -393,7 +395,7 @@ function valueFn(value) {return function() {return value;};}
  * @param {*} value Reference to check.
  * @returns {boolean} True if `value` is undefined.
  */
-function isUndefined(value){return typeof value == 'undefined';}
+function isUndefined(value){return typeof value === 'undefined';}
 
 
 /**
@@ -407,7 +409,7 @@ function isUndefined(value){return typeof value == 'undefined';}
  * @param {*} value Reference to check.
  * @returns {boolean} True if `value` is defined.
  */
-function isDefined(value){return typeof value != 'undefined';}
+function isDefined(value){return typeof value !== 'undefined';}
 
 
 /**
@@ -422,7 +424,7 @@ function isDefined(value){return typeof value != 'undefined';}
  * @param {*} value Reference to check.
  * @returns {boolean} True if `value` is an `Object` but not `null`.
  */
-function isObject(value){return value != null && typeof value == 'object';}
+function isObject(value){return value != null && typeof value === 'object';}
 
 
 /**
@@ -436,7 +438,7 @@ function isObject(value){return value != null && typeof value == 'object';}
  * @param {*} value Reference to check.
  * @returns {boolean} True if `value` is a `String`.
  */
-function isString(value){return typeof value == 'string';}
+function isString(value){return typeof value === 'string';}
 
 
 /**
@@ -450,7 +452,7 @@ function isString(value){return typeof value == 'string';}
  * @param {*} value Reference to check.
  * @returns {boolean} True if `value` is a `Number`.
  */
-function isNumber(value){return typeof value == 'number';}
+function isNumber(value){return typeof value === 'number';}
 
 
 /**
@@ -465,7 +467,7 @@ function isNumber(value){return typeof value == 'number';}
  * @returns {boolean} True if `value` is a `Date`.
  */
 function isDate(value){
-  return toString.apply(value) == '[object Date]';
+  return toString.call(value) === '[object Date]';
 }
 
 
@@ -481,7 +483,7 @@ function isDate(value){
  * @returns {boolean} True if `value` is an `Array`.
  */
 function isArray(value) {
-  return toString.apply(value) == '[object Array]';
+  return toString.call(value) === '[object Array]';
 }
 
 
@@ -496,7 +498,7 @@ function isArray(value) {
  * @param {*} value Reference to check.
  * @returns {boolean} True if `value` is a `Function`.
  */
-function isFunction(value){return typeof value == 'function';}
+function isFunction(value){return typeof value === 'function';}
 
 
 /**
@@ -507,7 +509,7 @@ function isFunction(value){return typeof value == 'function';}
  * @returns {boolean} True if `value` is a `RegExp`.
  */
 function isRegExp(value) {
-  return toString.apply(value) == '[object RegExp]';
+  return toString.call(value) === '[object RegExp]';
 }
 
 
@@ -529,12 +531,12 @@ function isScope(obj) {
 
 
 function isFile(obj) {
-  return toString.apply(obj) === '[object File]';
+  return toString.call(obj) === '[object File]';
 }
 
 
 function isBoolean(value) {
-  return typeof value == 'boolean';
+  return typeof value === 'boolean';
 }
 
 
@@ -544,7 +546,7 @@ var trim = (function() {
   // TODO: we should move this into IE/ES5 polyfill
   if (!String.prototype.trim) {
     return function(value) {
-      return isString(value) ? value.replace(/^\s*/, '').replace(/\s*$/, '') : value;
+      return isString(value) ? value.replace(/^\s\s*/, '').replace(/\s\s*$/, '') : value;
     };
   }
   return function(value) {
@@ -565,9 +567,9 @@ var trim = (function() {
  * @returns {boolean} True if `value` is a DOM element (or wrapped jQuery element).
  */
 function isElement(node) {
-  return node &&
+  return !!(node &&
     (node.nodeName  // we are a direct element
-    || (node.on && node.find));  // we have an on and find method part of jQuery API
+    || (node.on && node.find)));  // we have an on and find method part of jQuery API
 }
 
 /**
@@ -638,7 +640,7 @@ function includes(array, obj) {
 function indexOf(array, obj) {
   if (array.indexOf) return array.indexOf(obj);
 
-  for ( var i = 0; i < array.length; i++) {
+  for (var i = 0; i < array.length; i++) {
     if (obj === array[i]) return i;
   }
   return -1;
@@ -676,9 +678,6 @@ function isLeafNode (node) {
  *   are deleted and then all elements/properties from the source are copied to it.
  * * If `source` is not an object or array (inc. `null` and `undefined`), `source` is returned.
  * * If `source` is identical to 'destination' an exception will be thrown.
- *
- * Note: this function is used to augment the Object type in Angular expressions. See
- * {@link ng.$filter} for more information about Angular arrays.
  *
  * @param {*} source The source that will be used to make a copy.
  *                   Can be any type, including primitives, `null`, and `undefined`.
@@ -771,8 +770,8 @@ function shallowCopy(src, dst) {
 
   for(var key in src) {
     // shallowCopy is only ever called by $compile nodeLinkFn, which has control over src
-    // so we don't need to worry hasOwnProperty here
-    if (src.hasOwnProperty(key) && key.substr(0, 2) !== '$$') {
+    // so we don't need to worry about using our custom hasOwnProperty here
+    if (src.hasOwnProperty(key) && key.charAt(0) !== '$' && key.charAt(1) !== '$') {
       dst[key] = src[key];
     }
   }
@@ -977,7 +976,7 @@ function startingTag(element) {
   try {
     // turns out IE does not let you set .html() on elements which
     // are not allowed to have children. So we just ignore it.
-    element.html('');
+    element.empty();
   } catch(e) {}
   // As Per DOM Standards
   var TEXT_NODE = 3;
@@ -1105,26 +1104,38 @@ function encodeUriQuery(val, pctEncodeSpaces) {
  *
  * @description
  *
- * Use this directive to auto-bootstrap an application. Only
- * one ngApp directive can be used per HTML document. The directive
- * designates the root of the application and is typically placed
- * at the root of the page.
+ * Use this directive to **auto-bootstrap** an AngularJS application. The `ngApp` directive
+ * designates the **root element** of the application and is typically placed near the root element
+ * of the page - e.g. on the `<body>` or `<html>` tags.
  *
- * The first ngApp found in the document will be auto-bootstrapped. To use multiple applications in
- * an HTML document you must manually bootstrap them using {@link angular.bootstrap}.
- * Applications cannot be nested.
+ * Only one AngularJS application can be auto-bootstrapped per HTML document. The first `ngApp`
+ * found in the document will be used to define the root element to auto-bootstrap as an
+ * application. To run multiple applications in an HTML document you must manually bootstrap them using
+ * {@link angular.bootstrap} instead. AngularJS applications cannot be nested within each other.
  *
- * In the example below if the `ngApp` directive were not placed
- * on the `html` element then the document would not be compiled
- * and the `{{ 1+2 }}` would not be resolved to `3`.
+ * You can specify an **AngularJS module** to be used as the root module for the application.  This
+ * module will be loaded into the {@link AUTO.$injector} when the application is bootstrapped and
+ * should contain the application code needed or have dependencies on other modules that will
+ * contain the code. See {@link angular.module} for more information.
  *
- * `ngApp` is the easiest way to bootstrap an application.
+ * In the example below if the `ngApp` directive were not placed on the `html` element then the
+ * document would not be compiled, the `AppController` would not be instantiated and the `{{ a+b }}`
+ * would not be resolved to `3`.
  *
- <doc:example>
-   <doc:source>
-    I can add: 1 + 2 =  {{ 1+2 }}
-   </doc:source>
- </doc:example>
+ * `ngApp` is the easiest, and most common, way to bootstrap an application.
+ *
+ <example module="ngAppDemo">
+   <file name="index.html">
+   <div ng-controller="ngAppDemoController">
+     I can add: {{a}} + {{b}} =  {{ a+b }}
+   </file>
+   <file name="script.js">
+   angular.module('ngAppDemo', []).controller('ngAppDemoController', function($scope) {
+     $scope.a = 1;
+     $scope.b = 2;
+   });
+   </file>
+ </example>
  *
  */
 function angularInit(element, bootstrap) {
@@ -1210,7 +1221,6 @@ function bootstrap(element, modules) {
           element.data('$injector', injector);
           compile(element)(scope);
         });
-        animate.enabled(true);
       }]
     );
     return injector;
@@ -1247,6 +1257,7 @@ function bindJQuery() {
     jqLite = jQuery;
     extend(jQuery.fn, {
       scope: JQLitePrototype.scope,
+      isolateScope: JQLitePrototype.isolateScope,
       controller: JQLitePrototype.controller,
       injector: JQLitePrototype.injector,
       inheritedData: JQLitePrototype.inheritedData
@@ -1321,23 +1332,25 @@ function getter(obj, path, bindFnToScope) {
 }
 
 /**
- * Return the siblings between `startNode` and `endNode`, inclusive
- * @param {Object} object with `startNode` and `endNode` properties
+ * Return the DOM siblings between the first and last node in the given array.
+ * @param {Array} array like object
  * @returns jQlite object containing the elements
  */
-function getBlockElements(block) {
-  if (block.startNode === block.endNode) {
-    return jqLite(block.startNode);
+function getBlockElements(nodes) {
+  var startNode = nodes[0],
+      endNode = nodes[nodes.length - 1];
+  if (startNode === endNode) {
+    return jqLite(startNode);
   }
 
-  var element = block.startNode;
+  var element = startNode;
   var elements = [element];
 
   do {
     element = element.nextSibling;
     if (!element) break;
     elements.push(element);
-  } while (element !== block.endNode);
+  } while (element !== endNode);
 
   return jqLite(elements);
 }

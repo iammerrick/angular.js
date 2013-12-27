@@ -36,18 +36,23 @@ describe('form', function() {
   });
 
 
-  it('should remove the widget when element removed', function() {
+  it('should remove form control references from the form when nested control is removed from the DOM', function() {
     doc = $compile(
       '<form name="myForm">' +
-        '<input type="text" name="alias" ng-model="value" store-model-ctrl/>' +
+        '<input ng-if="inputPresent" name="alias" ng-model="value" store-model-ctrl/>' +
       '</form>')(scope);
+    scope.inputPresent = true;
+    scope.$digest();
 
     var form = scope.myForm;
     control.$setValidity('required', false);
     expect(form.alias).toBe(control);
     expect(form.$error.required).toEqual([control]);
 
-    doc.find('input').remove();
+    // remove nested control
+    scope.inputPresent = false;
+    scope.$apply();
+
     expect(form.$error.required).toBe(false);
     expect(form.alias).toBeUndefined();
   });
@@ -211,7 +216,7 @@ describe('form', function() {
         // yes, I know, scope methods should not do direct DOM manipulation, but I wanted to keep
         // this test small. Imagine that the destroy action will cause a model change (e.g.
         // $location change) that will cause some directive to destroy the dom (e.g. ngView+$route)
-        doc.html('');
+        doc.empty();
         destroyed = true;
       }
 
@@ -362,14 +367,15 @@ describe('form', function() {
     });
 
 
-    it('should deregister a input when its removed from DOM', function() {
+    it('should deregister a input when it is removed from DOM', function() {
       doc = jqLite(
         '<form name="parent">' +
           '<div class="ng-form" name="child">' +
-            '<input ng:model="modelA" name="inputA" required>' +
+            '<input ng-if="inputPresent" ng-model="modelA" name="inputA" required>' +
           '</div>' +
         '</form>');
       $compile(doc)(scope);
+      scope.inputPresent = true;
       scope.$apply();
 
       var parent = scope.parent,
@@ -384,7 +390,10 @@ describe('form', function() {
       expect(doc.hasClass('ng-invalid-required')).toBe(true);
       expect(doc.find('div').hasClass('ng-invalid')).toBe(true);
       expect(doc.find('div').hasClass('ng-invalid-required')).toBe(true);
-      doc.find('input').remove(); //remove child
+
+      //remove child input
+      scope.inputPresent = false;
+      scope.$apply();
 
       expect(parent.$error.required).toBe(false);
       expect(child.$error.required).toBe(false);

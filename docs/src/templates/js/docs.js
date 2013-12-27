@@ -207,28 +207,29 @@ docsApp.directive.sourceEdit = function(getEmbeddedTemplate) {
   }
 };
 
-docsApp.directive.docModuleComponents = ['sections', function(sections) {
+docsApp.directive.docModuleComponents = function() {
   return {
     template: '  <div class="component-breakdown">' +
               '    <h2>Module Components</h2>' +
-              '    <div ng-repeat="(key, section) in components">' + 
-              '      <h3 class="component-heading" id="{{ section.type }}">{{ section.title }}</h3>' + 
-              '      <table class="definition-table">' + 
-              '        <tr>' + 
-              '          <th>Name</th>' + 
-              '          <th>Description</th>' + 
-              '        </tr>' + 
-              '        <tr ng-repeat="component in section.components">' + 
-              '          <td><a ng-href="{{ component.url }}">{{ component.shortName }}</a></td>' + 
-              '          <td>{{ component.shortDescription }}</td>' + 
-              '        </tr>' + 
-              '      </table>' + 
+              '    <div ng-repeat="(key, section) in components">' +
+              '      <h3 class="component-heading" id="{{ section.type }}">{{ section.title }}</h3>' +
+              '      <table class="definition-table">' +
+              '        <tr>' +
+              '          <th>Name</th>' +
+              '          <th>Description</th>' +
+              '        </tr>' +
+              '        <tr ng-repeat="component in section.components">' +
+              '          <td><a ng-href="{{ component.url }}">{{ component.shortName }}</a></td>' +
+              '          <td>{{ component.shortDescription }}</td>' +
+              '        </tr>' +
+              '      </table>' +
               '    </div>' +
               '  </div>',
     scope : {
       module : '@docModuleComponents'
     },
-    controller : ['$scope', function($scope) {
+    controller : ['$scope', '$anchorScroll', '$timeout', 'sections',
+      function($scope, $anchorScroll, $timeout, sections) {
       var validTypes = ['property','function','directive','service','object','filter'];
       var components = {};
       angular.forEach(sections.api, function(item) {
@@ -239,16 +240,17 @@ docsApp.directive.docModuleComponents = ['sections', function(sections) {
             components[type] = components[type] || {
               title : type,
               type : type,
-              components : [] 
+              components : []
             };
             components[type].components.push(item);
           }
         }
       });
       $scope.components = components;
+      $timeout($anchorScroll, 0, false);
     }]
   };
-}]
+};
 
 docsApp.directive.docTutorialNav = function(templateMerge) {
   var pages = [
@@ -271,10 +273,10 @@ docsApp.directive.docTutorialNav = function(templateMerge) {
       element.addClass('btn-group');
       element.addClass('tutorial-nav');
       element.append(templateMerge(
-        '<li class="btn btn-primary"><a href="tutorial/{{prev}}"><i class="icon-step-backward"></i> Previous</a></li>\n' +
-        '<li class="btn btn-primary"><a href="http://angular.github.com/angular-phonecat/step-{{seq}}/app"><i class="icon-play"></i> Live Demo</a></li>\n' +
-        '<li class="btn btn-primary"><a href="https://github.com/angular/angular-phonecat/compare/step-{{diffLo}}...step-{{diffHi}}"><i class="icon-search"></i> Code Diff</a></li>\n' +
-        '<li class="btn btn-primary"><a href="tutorial/{{next}}">Next <i class="icon-step-forward"></i></a></li>', props));
+        '<a href="tutorial/{{prev}}"><li class="btn btn-primary"><i class="icon-step-backward"></i> Previous</li></a>\n' +
+        '<a href="http://angular.github.com/angular-phonecat/step-{{seq}}/app"><li class="btn btn-primary"><i class="icon-play"></i> Live Demo</li></a>\n' +
+        '<a href="https://github.com/angular/angular-phonecat/compare/step-{{diffLo}}...step-{{diffHi}}"><li class="btn btn-primary"><i class="icon-search"></i> Code Diff</li></a>\n' +
+        '<a href="tutorial/{{next}}"><li class="btn btn-primary">Next <i class="icon-step-forward"></i></li></a>', props));
     }
   };
 };
@@ -370,6 +372,21 @@ docsApp.directive.errorDisplay = ['$location', 'errorLinkFilter', function ($loc
 }];
 
 
+/**
+ * backToTop Directive
+ * @param  {Function} $anchorScroll
+ *
+ * @description Ensure that the browser scrolls when the anchor is clicked
+ */
+docsApp.directive.backToTop = ['$anchorScroll', function($anchorScroll) {
+  return function link(scope, element) {
+    element.on('click', function(event) {
+      scope.$apply($anchorScroll);
+    });
+  };
+}];
+
+
 docsApp.serviceFactory.angularUrls = function($document) {
   var urls = {};
 
@@ -411,7 +428,7 @@ docsApp.serviceFactory.prepareDefaultAppModule = function() {
     var moduleName = 'App';
     return {
       module : moduleName,
-      script : "angular.module('" + moduleName + "', [" + 
+      script : "angular.module('" + moduleName + "', [" +
           (deps.length ? "'" + deps.join("','") + "'" : "") + "]);\n\n"
     };
   };
@@ -678,7 +695,6 @@ docsApp.controller.DocsController = function($scope, $location, $window, $cookie
     var currentPageId = $location.path();
     $scope.partialTitle = $scope.currentPage.shortName;
     $window._gaq.push(['_trackPageview', currentPageId]);
-    loadDisqus(currentPageId);
   };
 
   /** stores a cookie that is used by apache to decide which manifest ot send */
@@ -709,7 +725,7 @@ docsApp.controller.DocsController = function($scope, $location, $window, $cookie
     error: 'Error Reference'
   };
 
-  populateComponentsList(); 
+  populateComponentsList();
 
   $scope.$watch(function docsPathWatch() {return $location.path(); }, function docsPathWatchAction(path) {
     // ignore non-doc links which are used in examples
@@ -889,29 +905,6 @@ docsApp.controller.DocsController = function($scope, $location, $window, $cookie
       }
       return namespace;
     }
-  }
-
-
-  function loadDisqus(currentPageId) {
-    // http://docs.disqus.com/help/2/
-    window.disqus_shortname = 'angularjs-next';
-    window.disqus_identifier = currentPageId;
-    window.disqus_url = 'http://docs.angularjs.org' + currentPageId;
-
-    if ($location.host() == 'localhost') {
-      return; // don't display disqus on localhost, comment this out if needed
-      //window.disqus_developer = 1;
-    }
-
-    // http://docs.disqus.com/developers/universal/
-    (function() {
-      var dsq = document.createElement('script'); dsq.type = 'text/javascript'; dsq.async = true;
-      dsq.src = 'http://angularjs.disqus.com/embed.js';
-      (document.getElementsByTagName('head')[0] ||
-        document.getElementsByTagName('body')[0]).appendChild(dsq);
-    })();
-
-    angular.element(document.getElementById('disqus_thread')).html('');
   }
 };
 

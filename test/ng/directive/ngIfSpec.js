@@ -1,8 +1,11 @@
 'use strict';
 
 describe('ngIf', function () {
-  var $scope, $compile, element;
+  var $scope, $compile, element, $compileProvider;
 
+  beforeEach(module(function(_$compileProvider_) {
+    $compileProvider = _$compileProvider_;
+  }));
   beforeEach(inject(function ($rootScope, _$compile_) {
     $scope = $rootScope.$new();
     $compile = _$compile_;
@@ -28,6 +31,22 @@ describe('ngIf', function () {
     expect(element.children().length).toBe(1);
   });
 
+  it('should not add the element twice if the condition goes from true to true', function () {
+    $scope.hello = 'true1';
+    makeIf('hello');
+    expect(element.children().length).toBe(1);
+    $scope.$apply('hello = "true2"');
+    expect(element.children().length).toBe(1);
+  });
+
+  it('should not recreate the element if the condition goes from true to true', function () {
+    $scope.hello = 'true1';
+    makeIf('hello');
+    element.children().data('flag', true);
+    $scope.$apply('hello = "true2"');
+    expect(element.children().data('flag')).toBe(true);
+  });
+
   it('should create then remove the element if condition changes', function () {
     $scope.hello = true;
     makeIf('hello');
@@ -36,13 +55,33 @@ describe('ngIf', function () {
     expect(element.children().length).toBe(0);
   });
 
-  it('should create a new scope', function () {
+  it('should create a new scope every time the expression evaluates to true', function () {
     $scope.$apply('value = true');
     element.append($compile(
       '<div ng-if="value"><span ng-init="value=false"></span></div>'
     )($scope));
     $scope.$apply();
     expect(element.children('div').length).toBe(1);
+  });
+
+  it('should destroy the child scope every time the expression evaluates to false', function() {
+    $scope.value = true;
+    element.append($compile(
+        '<div ng-if="value"></div>'
+    )($scope));
+    $scope.$apply();
+
+    var childScope = element.children().scope();
+    var destroyed = false;
+
+    childScope.$on('$destroy', function() {
+      destroyed = true;
+    });
+
+    $scope.value = false;
+    $scope.$apply();
+
+    expect(destroyed).toBe(true);
   });
 
   it('should play nice with other elements beside it', function () {
@@ -110,6 +149,56 @@ describe('ngIf', function () {
     expect(element.children()[0].className).toContain('my-class');
   });
 
+  it('should work when combined with an ASYNC template that loads after the first digest', inject(function($httpBackend, $compile, $rootScope) {
+    $compileProvider.directive('test', function() {
+      return {
+        templateUrl: 'test.html'
+      };
+    });
+    $httpBackend.whenGET('test.html').respond('hello');
+    element.append('<div ng-if="show" test></div>');
+    $compile(element)($rootScope);
+    $rootScope.show = true;
+    $rootScope.$apply();
+    expect(element.text()).toBe('');
+
+    $httpBackend.flush();
+    expect(element.text()).toBe('hello');
+
+    $rootScope.show = false;
+    $rootScope.$apply();
+    // Note: there are still comments in element!
+    expect(element.children().length).toBe(0);
+    expect(element.text()).toBe('');
+  }));
+});
+
+describe('ngIf and transcludes', function() {
+  it('should allow access to directive controller from children when used in a replace template', function() {
+    var controller;
+    module(function($compileProvider) {
+      var directive = $compileProvider.directive;
+      directive('template', valueFn({
+        template: '<div ng-if="true"><span test></span></div>',
+        replace: true,
+        controller: function() {
+          this.flag = true;
+        }
+      }));
+      directive('test', valueFn({
+        require: '^template',
+        link: function(scope, el, attr, ctrl) {
+          controller = ctrl;
+        }
+      }));
+    });
+    inject(function($compile, $rootScope) {
+      var element = $compile('<div><div template></div></div>')($rootScope);
+      $rootScope.$apply();
+      expect(controller.flag).toBe(true);
+      dealoc(element);
+    });
+  });
 });
 
 describe('ngIf animations', function () {

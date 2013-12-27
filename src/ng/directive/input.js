@@ -36,8 +36,7 @@ var inputType = {
    *    patterns defined as scope expressions.
    * @param {string=} ngChange Angular expression to be executed when input changes due to user
    *    interaction with the input element.
-   * @param {boolean=} [ngTrim=true] If set to false Angular will not automatically trimming the
-   *    input.
+   * @param {boolean=} [ngTrim=true] If set to false Angular will not automatically trim the input.
    *
    * @example
       <doc:example>
@@ -393,8 +392,23 @@ var inputType = {
 
 
 function textInputType(scope, element, attr, ctrl, $sniffer, $browser) {
+  // In composition mode, users are still inputing intermediate text buffer,
+  // hold the listener until composition is done.
+  // More about composition events: https://developer.mozilla.org/en-US/docs/Web/API/CompositionEvent
+  if (!$sniffer.android) {
+    var composing = false;
+
+    element.on('compositionstart', function(data) {
+      composing = true;
+    });
+
+    element.on('compositionend', function() {
+      composing = false;
+    });
+  }
 
   var listener = function() {
+    if (composing) return;
     var value = element.val();
 
     // By default we will trim the value
@@ -437,15 +451,15 @@ function textInputType(scope, element, attr, ctrl, $sniffer, $browser) {
       deferListener();
     });
 
-    // if user paste into input using mouse, we need "change" event to catch it
-    element.on('change', listener);
-
     // if user modifies input value using context menu in IE, we need "paste" and "cut" events to catch it
     if ($sniffer.hasEvent('paste')) {
       element.on('paste cut', deferListener);
     }
   }
 
+  // if user paste into input using mouse on older browser
+  // or form autocomplete on newer browser, we need "change" event to catch it
+  element.on('change', listener);
 
   ctrl.$render = function() {
     element.val(ctrl.$isEmpty(ctrl.$viewValue) ? '' : ctrl.$viewValue);
@@ -841,6 +855,11 @@ var VALID_CLASS = 'ng-valid',
  *      }
  *      ngModel.$formatters.push(formatter);
  *      </pre>
+ *
+ * @property {Array.<Function>} $viewChangeListeners Array of functions to execute whenever the
+ *     view value has changed. It is called with no arguments, and its return value is ignored.
+ *     This can be used in place of additional $watches against the model value.
+ *
  * @property {Object} $error An object hash with all errors as keys.
  *
  * @property {boolean} $pristine True if user has not interacted with the control yet.
@@ -931,39 +950,6 @@ var VALID_CLASS = 'ng-valid',
         expect(contentEditable.text()).toEqual('');
         expect(contentEditable.prop('className')).toMatch(/ng-invalid-required/);
       });
-    </file>
- * </example>
- *
- * ## Isolated Scope Pitfall
- *
- * Note that if you have a directive with an isolated scope, you cannot require `ngModel`
- * since the model value will be looked up on the isolated scope rather than the outer scope.
- * When the directive updates the model value, calling `ngModel.$setViewValue()` the property
- * on the outer scope will not be updated. However you can get around this by using $parent.
- *
- * Here is an example of this situation.  You'll notice that the first div is not updating the input. 
- * However the second div can update the input properly.
- *
- * <example module="badIsolatedDirective">
-    <file name="script.js">
-		angular.module('badIsolatedDirective', []).directive('isolate', function() {
-      return {
-        require: 'ngModel',
-        scope: { },
-        template: '<input ng-model="innerModel">',
-        link: function(scope, element, attrs, ngModel) {
-          scope.$watch('innerModel', function(value) {
-            console.log(value);
-            ngModel.$setViewValue(value);
-          });
-        }
-      };
-		});
-    </file>
-    <file name="index.html">
-        <input ng-model="someModel"/>
-        <div isolate ng-model="someModel"></div>
-        <div isolate ng-model="$parent.someModel"></div>
     </file>
  * </example>
  *
@@ -1104,14 +1090,19 @@ var NgModelController = ['$scope', '$exceptionHandler', '$attrs', '$element', '$
    * @methodOf ng.directive:ngModel.NgModelController
    *
    * @description
-   * Read a value from view.
+   * Update the view value.
    *
-   * This method should be called from within a DOM event handler.
-   * For example {@link ng.directive:input input} or
+   * This method should be called when the view value changes, typically from within a DOM event handler.
+   * For example {@link ng.directive:input input} and
    * {@link ng.directive:select select} directives call it.
    *
-   * It internally calls all `$parsers` (including validators) and updates the `$modelValue` and the actual model path.
-   * Lastly it calls all registered change listeners.
+   * It will update the $viewValue, then pass this value through each of the functions in `$parsers`,
+   * which includes any validators. The value that comes out of this `$parsers` pipeline, be applied to
+   * `$modelValue` and the **expression** specified in the `ng-model` attribute.
+   *
+   * Lastly, all the registered change listeners, in the `$viewChangeListeners` list, are called.
+   *
+   * Note that calling this function does not trigger a `$digest`.
    *
    * @param {string} value Value from the view.
    */
@@ -1165,6 +1156,8 @@ var NgModelController = ['$scope', '$exceptionHandler', '$attrs', '$element', '$
         ctrl.$render();
       }
     }
+
+    return value;
   });
 }];
 
@@ -1222,7 +1215,7 @@ var ngModelDirective = function() {
 
       formCtrl.$addControl(modelCtrl);
 
-      element.on('$destroy', function() {
+      scope.$on('$destroy', function() {
         formCtrl.$removeControl(modelCtrl);
       });
     }
@@ -1441,7 +1434,6 @@ var CONSTANT_VALUE_REGEXP = /^(true|false|\d+)$/;
                      id="{{name}}"
                      name="favorite">
             </label>
-          </span>
           <div>You chose {{my.favorite}}</div>
         </form>
       </doc:source>

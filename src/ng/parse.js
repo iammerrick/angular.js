@@ -8,23 +8,18 @@ var promiseWarning;
 // ------------------------------
 // Angular expressions are generally considered safe because these expressions only have direct
 // access to $scope and locals. However, one can obtain the ability to execute arbitrary JS code by
-// obtaining a reference to native JS functions such as the Function constructor, thw global Window
-// or Document object.  In addition, many powerful functions for use by JavaScript code are
-// published on scope that shouldn't be available from within an Angular expression.
+// obtaining a reference to native JS functions such as the Function constructor.
 //
 // As an example, consider the following Angular expression:
 //
 //   {}.toString.constructor(alert("evil JS code"))
 //
 // We want to prevent this type of access. For the sake of performance, during the lexing phase we
-// disallow any "dotted" access to any member named "constructor" or to any member whose name begins
-// or ends with an underscore.  The latter allows one to exclude the private / JavaScript only API
-// available on the scope and controllers from the context of an Angular expression.
+// disallow any "dotted" access to any member named "constructor".
 //
-// For reflective calls (a[b]), we check that the value of the lookup is not the Function
-// constructor, Window or DOM node while evaluating the expression, which is a stronger but more
-// expensive test. Since reflective calls are expensive anyway, this is not such a big deal compared
-// to static dereferencing.
+// For reflective calls (a[b]) we check that the value of the lookup is not the Function constructor
+// while evaluating the expression, which is a stronger but more expensive test. Since reflective
+// calls are expensive anyway, this is not such a big deal compared to static dereferencing.
 //
 // This sandboxing technique is not perfect and doesn't aim to be. The goal is to prevent exploits
 // against the expression language, but not to prevent exploits that were enabled by exposing
@@ -38,18 +33,10 @@ var promiseWarning;
 // In general, it is not possible to access a Window object from an angular expression unless a
 // window or some DOM object that has a reference to window is published onto a Scope.
 
-function ensureSafeMemberName(name, fullExpression, allowConstructor) {
-  if (typeof name !== 'string' && toString.apply(name) !== "[object String]") {
-    return name;
-  }
-  if (name === "constructor" && !allowConstructor) {
+function ensureSafeMemberName(name, fullExpression) {
+  if (name === "constructor") {
     throw $parseMinErr('isecfld',
         'Referencing "constructor" field in Angular expressions is disallowed! Expression: {0}',
-        fullExpression);
-  }
-  if (name.charAt(0) === '_' || name.charAt(name.length-1) === '_') {
-    throw $parseMinErr('isecprv',
-        'Referencing private fields in Angular expressions is disallowed! Expression: {0}',
         fullExpression);
   }
   return name;
@@ -57,23 +44,24 @@ function ensureSafeMemberName(name, fullExpression, allowConstructor) {
 
 function ensureSafeObject(obj, fullExpression) {
   // nifty check if obj is Function that is fast and works across iframes and other contexts
-  if (obj && obj.constructor === obj) {
-    throw $parseMinErr('isecfn',
-        'Referencing Function in Angular expressions is disallowed! Expression: {0}',
-        fullExpression);
-  } else if (// isWindow(obj)
-      obj && obj.document && obj.location && obj.alert && obj.setInterval) {
-    throw $parseMinErr('isecwindow',
-        'Referencing the Window in Angular expressions is disallowed! Expression: {0}',
-        fullExpression);
-  } else if (// isElement(obj)
-      obj && (obj.nodeName || (obj.on && obj.find))) {
-    throw $parseMinErr('isecdom',
-        'Referencing DOM nodes in Angular expressions is disallowed! Expression: {0}',
-        fullExpression);
-  } else {
-    return obj;
+  if (obj) {
+    if (obj.constructor === obj) {
+      throw $parseMinErr('isecfn',
+          'Referencing Function in Angular expressions is disallowed! Expression: {0}',
+          fullExpression);
+    } else if (// isWindow(obj)
+        obj.document && obj.location && obj.alert && obj.setInterval) {
+      throw $parseMinErr('isecwindow',
+          'Referencing the Window in Angular expressions is disallowed! Expression: {0}',
+          fullExpression);
+    } else if (// isElement(obj)
+        obj.children && (obj.nodeName || (obj.on && obj.find))) {
+      throw $parseMinErr('isecdom',
+          'Referencing DOM nodes in Angular expressions is disallowed! Expression: {0}',
+          fullExpression);
+    }
   }
+  return obj;
 }
 
 var OPERATORS = {
@@ -735,10 +723,7 @@ Parser.prototype = {
 
     return extend(function(self, locals) {
       var o = obj(self, locals),
-          // In the getter, we will not block looking up "constructor" by name in order to support user defined
-          // constructors.  However, if value looked up is the Function constructor, we will still block it in the
-          // ensureSafeObject call right after we look up o[i] (a few lines below.)
-          i = ensureSafeMemberName(indexFn(self, locals), parser.text, true /* allowConstructor */),
+          i = indexFn(self, locals),
           v, p;
 
       if (!o) return undefined;
@@ -754,7 +739,7 @@ Parser.prototype = {
       return v;
     }, {
       assign: function(self, value, locals) {
-        var key = ensureSafeMemberName(indexFn(self, locals), parser.text);
+        var key = indexFn(self, locals);
         // prevent overwriting of Function.constructor which would break ensureSafeObject check
         var safe = ensureSafeObject(obj(self, locals), parser.text);
         return safe[key] = value;
@@ -906,19 +891,19 @@ function cspSafeGetterFn(key0, key1, key2, key3, key4, fullExp, options) {
       ? function cspSafeGetter(scope, locals) {
           var pathVal = (locals && locals.hasOwnProperty(key0)) ? locals : scope;
 
-          if (pathVal === null || pathVal === undefined) return pathVal;
+          if (pathVal == null) return pathVal;
           pathVal = pathVal[key0];
 
-          if (!key1 || pathVal === null || pathVal === undefined) return pathVal;
+          if (pathVal == null) return key1 ? undefined : pathVal;
           pathVal = pathVal[key1];
 
-          if (!key2 || pathVal === null || pathVal === undefined) return pathVal;
+          if (pathVal == null) return key2 ? undefined : pathVal;
           pathVal = pathVal[key2];
 
-          if (!key3 || pathVal === null || pathVal === undefined) return pathVal;
+          if (pathVal == null) return key3 ? undefined : pathVal;
           pathVal = pathVal[key3];
 
-          if (!key4 || pathVal === null || pathVal === undefined) return pathVal;
+          if (pathVal == null) return key4 ? undefined : pathVal;
           pathVal = pathVal[key4];
 
           return pathVal;
@@ -927,7 +912,7 @@ function cspSafeGetterFn(key0, key1, key2, key3, key4, fullExp, options) {
           var pathVal = (locals && locals.hasOwnProperty(key0)) ? locals : scope,
               promise;
 
-          if (pathVal === null || pathVal === undefined) return pathVal;
+          if (pathVal == null) return pathVal;
 
           pathVal = pathVal[key0];
           if (pathVal && pathVal.then) {
@@ -939,7 +924,7 @@ function cspSafeGetterFn(key0, key1, key2, key3, key4, fullExp, options) {
             }
             pathVal = pathVal.$$v;
           }
-          if (!key1 || pathVal === null || pathVal === undefined) return pathVal;
+          if (pathVal == null) return key1 ? undefined : pathVal;
 
           pathVal = pathVal[key1];
           if (pathVal && pathVal.then) {
@@ -951,7 +936,7 @@ function cspSafeGetterFn(key0, key1, key2, key3, key4, fullExp, options) {
             }
             pathVal = pathVal.$$v;
           }
-          if (!key2 || pathVal === null || pathVal === undefined) return pathVal;
+          if (pathVal == null) return key2 ? undefined : pathVal;
 
           pathVal = pathVal[key2];
           if (pathVal && pathVal.then) {
@@ -963,7 +948,7 @@ function cspSafeGetterFn(key0, key1, key2, key3, key4, fullExp, options) {
             }
             pathVal = pathVal.$$v;
           }
-          if (!key3 || pathVal === null || pathVal === undefined) return pathVal;
+          if (pathVal == null) return key3 ? undefined : pathVal;
 
           pathVal = pathVal[key3];
           if (pathVal && pathVal.then) {
@@ -975,7 +960,7 @@ function cspSafeGetterFn(key0, key1, key2, key3, key4, fullExp, options) {
             }
             pathVal = pathVal.$$v;
           }
-          if (!key4 || pathVal === null || pathVal === undefined) return pathVal;
+          if (pathVal == null) return key4 ? undefined : pathVal;
 
           pathVal = pathVal[key4];
           if (pathVal && pathVal.then) {
@@ -991,6 +976,26 @@ function cspSafeGetterFn(key0, key1, key2, key3, key4, fullExp, options) {
         };
 }
 
+function simpleGetterFn1(key0, fullExp) {
+  ensureSafeMemberName(key0, fullExp);
+
+  return function simpleGetterFn1(scope, locals) {
+    if (scope == null) return undefined;
+    return ((locals && locals.hasOwnProperty(key0)) ? locals : scope)[key0];
+  };
+}
+
+function simpleGetterFn2(key0, key1, fullExp) {
+  ensureSafeMemberName(key0, fullExp);
+  ensureSafeMemberName(key1, fullExp);
+
+  return function simpleGetterFn2(scope, locals) {
+    if (scope == null) return undefined;
+    scope = ((locals && locals.hasOwnProperty(key0)) ? locals : scope)[key0];
+    return scope == null ? undefined : scope[key1];
+  };
+}
+
 function getterFn(path, options, fullExp) {
   // Check whether the cache has this getter already.
   // We can use hasOwnProperty directly on the cache because we ensure,
@@ -1003,7 +1008,13 @@ function getterFn(path, options, fullExp) {
       pathKeysLength = pathKeys.length,
       fn;
 
-  if (options.csp) {
+  // When we have only 1 or 2 tokens, use optimized special case closures.
+  // http://jsperf.com/angularjs-parse-getter/6
+  if (!options.unwrapPromises && pathKeysLength === 1) {
+    fn = simpleGetterFn1(pathKeys[0], fullExp);
+  } else if (!options.unwrapPromises && pathKeysLength === 2) {
+    fn = simpleGetterFn2(pathKeys[0], pathKeys[1], fullExp);
+  } else if (options.csp) {
     if (pathKeysLength < 6) {
       fn = cspSafeGetterFn(pathKeys[0], pathKeys[1], pathKeys[2], pathKeys[3], pathKeys[4], fullExp,
                           options);
@@ -1021,11 +1032,10 @@ function getterFn(path, options, fullExp) {
       };
     }
   } else {
-    var code = 'var l, fn, p;\n';
+    var code = 'var p;\n';
     forEach(pathKeys, function(key, index) {
       ensureSafeMemberName(key, fullExp);
-      code += 'if(s === null || s === undefined) return s;\n' +
-              'l=s;\n' +
+      code += 'if(s == null) return undefined;\n' +
               's='+ (index
                       // we simply dereference 's' on any .dot notation
                       ? 's'
@@ -1033,7 +1043,7 @@ function getterFn(path, options, fullExp) {
                       : '((k&&k.hasOwnProperty("' + key + '"))?k:s)') + '["' + key + '"]' + ';\n' +
               (options.unwrapPromises
                 ? 'if (s && s.then) {\n' +
-                  ' pw("' + fullExp.replace(/\"/g, '\\"') + '");\n' +
+                  ' pw("' + fullExp.replace(/(["\r\n])/g, '\\$1') + '");\n' +
                   ' if (!("$$v" in s)) {\n' +
                     ' p=s;\n' +
                     ' p.$$v = undefined;\n' +
@@ -1048,10 +1058,10 @@ function getterFn(path, options, fullExp) {
     /* jshint -W054 */
     var evaledFnGetter = new Function('s', 'k', 'pw', code); // s=scope, k=locals, pw=promiseWarning
     /* jshint +W054 */
-    evaledFnGetter.toString = function() { return code; };
-    fn = function(scope, locals) {
+    evaledFnGetter.toString = valueFn(code);
+    fn = options.unwrapPromises ? function(scope, locals) {
       return evaledFnGetter(scope, locals, promiseWarning);
-    };
+    } : evaledFnGetter;
   }
 
   // Only cache the value if it's not going to mess up the cache object

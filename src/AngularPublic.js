@@ -28,6 +28,7 @@
     ngHideDirective,
     ngIfDirective,
     ngIncludeDirective,
+    ngIncludeFillContentDirective,
     ngInitDirective,
     ngNonBindableDirective,
     ngPluralizeDirective,
@@ -65,6 +66,7 @@
     $ParseProvider,
     $RootScopeProvider,
     $QProvider,
+    $$SanitizeUriProvider,
     $SceProvider,
     $SceDelegateProvider,
     $SnifferProvider,
@@ -136,6 +138,10 @@ function publishExternalAPI(angular){
 
   angularModule('ng', ['ngLocale'], ['$provide',
     function ngModule($provide) {
+      // $$sanitizeUriProvider needs to be before $compileProvider as it is used by it.
+      $provide.provider({
+        $$sanitizeUri: $$SanitizeUriProvider
+      });
       $provide.provider('$compile', $CompileProvider).
         directive({
             a: htmlAnchorDirective,
@@ -175,6 +181,9 @@ function publishExternalAPI(angular){
             required: requiredDirective,
             ngRequired: requiredDirective,
             ngValue: ngValueDirective
+        }).
+        directive({
+          ngInclude: ngIncludeFillContentDirective
         }).
         directive(ngAttributeAliasDirectives).
         directive(ngEventDirectives);

@@ -177,6 +177,22 @@ describe('ngRepeat', function() {
     });
 
 
+    it('should allow expressions over multiple lines', function() {
+      scope.isTrue = function() {
+        return true;
+      };
+      element = $compile(
+          '<ul>' +
+            '<li ng-repeat="item in items\n' +
+            '| filter:isTrue">{{item.name}}</li>' +
+          '</ul>')(scope);
+      scope.items = [{name: 'igor'}];
+      scope.$digest();
+
+      expect(element.find('li').text()).toBe('igor');
+    });
+
+
     it('should track using provided function when a filter is present', function() {
       scope.newArray = function (items) {
         var newArray = [];
@@ -749,8 +765,30 @@ describe('ngRepeat', function() {
         expect(element.text()).toBe('123');
       }));
     }
-  });
 
+    it('should work when combined with an ASYNC template that loads after the first digest', inject(function($httpBackend, $compile, $rootScope) {
+      $compileProvider.directive('test', function() {
+        return {
+          templateUrl: 'test.html'
+        };
+      });
+      $httpBackend.whenGET('test.html').respond('hello');
+      element = jqLite('<div><div ng-repeat="i in items" test></div></div>');
+      $compile(element)($rootScope);
+      $rootScope.items = [1];
+      $rootScope.$apply();
+      expect(element.text()).toBe('');
+
+      $httpBackend.flush();
+      expect(element.text()).toBe('hello');
+
+      $rootScope.items = [];
+      $rootScope.$apply();
+      // Note: there are still comments in element!
+      expect(element.children().length).toBe(0);
+      expect(element.text()).toBe('');
+    }));
+  });
 
   it('should add separator comments after each item', inject(function ($compile, $rootScope) {
     var check = function () {
@@ -1058,6 +1096,33 @@ describe('ngRepeat', function() {
   });
 });
 
+describe('ngRepeat and transcludes', function() {
+  it('should allow access to directive controller from children when used in a replace template', function() {
+    var controller;
+    module(function($compileProvider) {
+      var directive = $compileProvider.directive;
+      directive('template', valueFn({
+        template: '<div ng-repeat="l in [1]"><span test></span></div>',
+        replace: true,
+        controller: function() {
+          this.flag = true;
+        }
+      }));
+      directive('test', valueFn({
+        require: '^template',
+        link: function(scope, el, attr, ctrl) {
+          controller = ctrl;
+        }
+      }));
+    });
+    inject(function($compile, $rootScope) {
+      var element = $compile('<div><div template></div></div>')($rootScope);
+      $rootScope.$apply();
+      expect(controller.flag).toBe(true);
+      dealoc(element);
+    });
+  });
+});
 
 describe('ngRepeat animations', function() {
   var body, element, $rootElement;

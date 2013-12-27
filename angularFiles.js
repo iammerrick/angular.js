@@ -27,6 +27,7 @@ angularFiles = {
     'src/ng/parse.js',
     'src/ng/q.js',
     'src/ng/rootScope.js',
+    'src/ng/sanitizeUri.js',
     'src/ng/sce.js',
     'src/ng/sniffer.js',
     'src/ng/timeout.js',
@@ -66,6 +67,7 @@ angularFiles = {
   ],
 
   'angularLoader': [
+    'src/minErr.js',
     'src/loader.js'
   ],
 

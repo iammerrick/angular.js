@@ -305,6 +305,107 @@ describe('ngModel', function() {
     expect(element).toBeInvalid();
     expect(element).toHaveClass('ng-invalid-required');
   }));
+
+
+  it('should register/deregister a nested ngModel with parent form when entering or leaving DOM',
+      inject(function($compile, $rootScope) {
+
+    var element = $compile('<form name="myForm">' +
+                             '<input ng-if="inputPresent" name="myControl" ng-model="value" required >' +
+                           '</form>')($rootScope);
+    var isFormValid;
+
+    $rootScope.inputPresent = false;
+    $rootScope.$watch('myForm.$valid', function(value) { isFormValid = value; });
+
+    $rootScope.$apply();
+
+    expect($rootScope.myForm.$valid).toBe(true);
+    expect(isFormValid).toBe(true);
+    expect($rootScope.myForm.myControl).toBeUndefined();
+
+    $rootScope.inputPresent = true;
+    $rootScope.$apply();
+
+    expect($rootScope.myForm.$valid).toBe(false);
+    expect(isFormValid).toBe(false);
+    expect($rootScope.myForm.myControl).toBeDefined();
+
+    $rootScope.inputPresent = false;
+    $rootScope.$apply();
+
+    expect($rootScope.myForm.$valid).toBe(true);
+    expect(isFormValid).toBe(true);
+    expect($rootScope.myForm.myControl).toBeUndefined();
+
+    dealoc(element);
+  }));
+
+
+  it('should register/deregister a nested ngModel with parent form when entering or leaving DOM with animations',
+      function() {
+
+    // ngAnimate performs the dom manipulation after digest, and since the form validity can be affected by a form
+    // control going away we must ensure that the deregistration happens during the digest while we are still doing
+    // dirty checking.
+    module('ngAnimate');
+
+    inject(function($compile, $rootScope) {
+      var element = $compile('<form name="myForm">' +
+                               '<input ng-if="inputPresent" name="myControl" ng-model="value" required >' +
+                             '</form>')($rootScope);
+      var isFormValid;
+
+      $rootScope.inputPresent = false;
+      // this watch ensure that the form validity gets updated during digest (so that we can observe it)
+      $rootScope.$watch('myForm.$valid', function(value) { isFormValid = value; });
+
+      $rootScope.$apply();
+
+      expect($rootScope.myForm.$valid).toBe(true);
+      expect(isFormValid).toBe(true);
+      expect($rootScope.myForm.myControl).toBeUndefined();
+
+      $rootScope.inputPresent = true;
+      $rootScope.$apply();
+
+      expect($rootScope.myForm.$valid).toBe(false);
+      expect(isFormValid).toBe(false);
+      expect($rootScope.myForm.myControl).toBeDefined();
+
+      $rootScope.inputPresent = false;
+      $rootScope.$apply();
+
+      expect($rootScope.myForm.$valid).toBe(true);
+      expect(isFormValid).toBe(true);
+      expect($rootScope.myForm.myControl).toBeUndefined();
+
+      dealoc(element);
+    });
+  });
+
+  it('should keep previously defined watches consistent when changes in validity are made',
+   inject(function($compile, $rootScope) {
+
+     var isFormValid;
+     $rootScope.$watch('myForm.$valid', function(value) { isFormValid = value; });
+
+     var element = $compile('<form name="myForm">' +
+      '<input  name="myControl" ng-model="value" required >' +
+      '</form>')($rootScope);
+
+     $rootScope.$apply();
+     expect(isFormValid).toBe(false);
+     expect($rootScope.myForm.$valid).toBe(false);
+
+     $rootScope.value='value';
+     $rootScope.$apply();
+     expect(isFormValid).toBe(true);
+     expect($rootScope.myForm.$valid).toBe(true);
+
+     dealoc(element);
+   }));
+
 });
 
 
@@ -369,22 +470,69 @@ describe('input', function() {
   });
 
 
-  it('should cleanup it self from the parent form', function() {
-    compileInput('<input ng-model="name" name="alias" required>');
-
-    scope.$apply();
-    expect(scope.form.$error.required.length).toBe(1);
-
-    inputElm.remove();
-    expect(scope.form.$error.required).toBe(false);
-  });
-
-
   it('should update the model on "blur" event', function() {
     compileInput('<input type="text" ng-model="name" name="alias" ng-change="change()" />');
 
     changeInputValueTo('adam');
     expect(scope.name).toEqual('adam');
+  });
+
+  if (!(msie < 9)) {
+    describe('compositionevents', function() {
+      it('should not update the model between "compositionstart" and "compositionend" on non android', inject(function($sniffer) {
+        $sniffer.android = false;
+
+        compileInput('<input type="text" ng-model="name" name="alias"" />');
+        changeInputValueTo('a');
+        expect(scope.name).toEqual('a');
+        browserTrigger(inputElm, 'compositionstart');
+        changeInputValueTo('adam');
+        expect(scope.name).toEqual('a');
+        browserTrigger(inputElm, 'compositionend');
+        changeInputValueTo('adam');
+        expect(scope.name).toEqual('adam');
+      }));
+
+      it('should update the model between "compositionstart" and "compositionend" on android', inject(function($sniffer) {
+        $sniffer.android = true;
+
+        compileInput('<input type="text" ng-model="name" name="alias"" />');
+        changeInputValueTo('a');
+        expect(scope.name).toEqual('a');
+        browserTrigger(inputElm, 'compositionstart');
+        changeInputValueTo('adam');
+        expect(scope.name).toEqual('adam');
+        browserTrigger(inputElm, 'compositionend');
+        changeInputValueTo('adam2');
+        expect(scope.name).toEqual('adam2');
+      }));
+    });
+  }
+
+  describe('"change" event', function() {
+    function assertBrowserSupportsChangeEvent(inputEventSupported) {
+      // Force browser to report a lack of an 'input' event
+      $sniffer.hasEvent = function(eventName) {
+        if (eventName === 'input' && !inputEventSupported) {
+          return false;
+        }
+        return true;
+      };
+      compileInput('<input type="text" ng-model="name" name="alias" />');
+
+      inputElm.val('mark');
+      browserTrigger(inputElm, 'change');
+      expect(scope.name).toEqual('mark');
+    }
+
+    it('should update the model event if the browser does not support the "input" event',function() {
+      assertBrowserSupportsChangeEvent(false);
+    });
+
+    it('should update the model event if the browser supports the "input" ' +
+      'event so that form auto complete works',function() {
+      assertBrowserSupportsChangeEvent(true);
+    });
   });
 
   describe('"paste" and "cut" events', function() {

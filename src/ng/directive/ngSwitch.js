@@ -6,19 +6,26 @@
  * @restrict EA
  *
  * @description
- * The ngSwitch directive is used to conditionally swap DOM structure on your template based on a scope expression.
- * Elements within ngSwitch but without ngSwitchWhen or ngSwitchDefault directives will be preserved at the location
+ * The `ngSwitch` directive is used to conditionally swap DOM structure on your template based on a scope expression.
+ * Elements within `ngSwitch` but without `ngSwitchWhen` or `ngSwitchDefault` directives will be preserved at the location
  * as specified in the template.
  *
  * The directive itself works similar to ngInclude, however, instead of downloading template code (or loading it
- * from the template cache), ngSwitch simply choses one of the nested elements and makes it visible based on which element
+ * from the template cache), `ngSwitch` simply choses one of the nested elements and makes it visible based on which element
  * matches the value obtained from the evaluated expression. In other words, you define a container element
- * (where you place the directive), place an expression on the **on="..." attribute**
- * (or the **ng-switch="..." attribute**), define any inner elements inside of the directive and place
+ * (where you place the directive), place an expression on the **`on="..."` attribute**
+ * (or the **`ng-switch="..."` attribute**), define any inner elements inside of the directive and place
  * a when attribute per element. The when attribute is used to inform ngSwitch which element to display when the on
  * expression is evaluated. If a matching expression is not found via a when attribute then an element with the default
  * attribute is displayed.
  *
+ * <div class="alert alert-info">
+ * Be aware that the attribute values to match against cannot be expressions. They are interpreted
+ * as literal string values to match against.
+ * For example, **`ng-switch-when="someVal"`** will match against the string `"someVal"` not against the
+ * value of the expression `$scope.someVal`.
+ * </div>
+
  * @animations
  * enter - happens after the ngSwitch contents change and the matched child element is placed inside the container
  * leave - happens just after the ngSwitch contents change and just before the former contents are removed from the DOM
@@ -29,6 +36,7 @@
  *   <ANY ng-switch-when="matchValue2">...</ANY>
  *   <ANY ng-switch-default>...</ANY>
  * </ANY>
+ *
  *
  * @scope
  * @priority 800
@@ -54,9 +62,9 @@
         <hr/>
         <div class="animate-switch-container"
           ng-switch on="selection">
-            <div ng-switch-when="settings">Settings Div</div>
-            <div ng-switch-when="home">Home Span</div>
-            <div ng-switch-default>default</div>
+            <div class="animate-switch" ng-switch-when="settings">Settings Div</div>
+            <div class="animate-switch" ng-switch-when="home">Home Span</div>
+            <div class="animate-switch" ng-switch-default>default</div>
         </div>
       </div>
     </file>
@@ -75,15 +83,12 @@
         overflow:hidden;
       }
 
-      .animate-switch-container > div {
+      .animate-switch {
         padding:10px;
       }
 
-      .animate-switch-container > .ng-enter,
-      .animate-switch-container > .ng-leave {
+      .animate-switch.ng-animate {
         -webkit-transition:all cubic-bezier(0.250, 0.460, 0.450, 0.940) 0.5s;
-        -moz-transition:all cubic-bezier(0.250, 0.460, 0.450, 0.940) 0.5s;
-        -o-transition:all cubic-bezier(0.250, 0.460, 0.450, 0.940) 0.5s;
         transition:all cubic-bezier(0.250, 0.460, 0.450, 0.940) 0.5s;
 
         position:absolute;
@@ -93,18 +98,13 @@
         bottom:0;
       }
 
-      .animate-switch-container > .ng-enter {
+      .animate-switch.ng-leave.ng-leave-active,
+      .animate-switch.ng-enter {
         top:-50px;
       }
-      .animate-switch-container > .ng-enter.ng-enter-active {
+      .animate-switch.ng-leave,
+      .animate-switch.ng-enter.ng-enter-active {
         top:0;
-      }
-
-      .animate-switch-container > .ng-leave {
-        top:0;
-      }
-      .animate-switch-container > .ng-leave.ng-leave-active {
-        top:50px;
       }
     </file>
     <file name="scenario.js">
@@ -168,10 +168,10 @@ var ngSwitchWhenDirective = ngDirective({
   transclude: 'element',
   priority: 800,
   require: '^ngSwitch',
-  compile: function(element, attrs, transclude) {
-    return function(scope, element, attr, ctrl) {
+  compile: function(element, attrs) {
+    return function(scope, element, attr, ctrl, $transclude) {
       ctrl.cases['!' + attrs.ngSwitchWhen] = (ctrl.cases['!' + attrs.ngSwitchWhen] || []);
-      ctrl.cases['!' + attrs.ngSwitchWhen].push({ transclude: transclude, element: element });
+      ctrl.cases['!' + attrs.ngSwitchWhen].push({ transclude: $transclude, element: element });
     };
   }
 });
@@ -180,10 +180,8 @@ var ngSwitchDefaultDirective = ngDirective({
   transclude: 'element',
   priority: 800,
   require: '^ngSwitch',
-  compile: function(element, attrs, transclude) {
-    return function(scope, element, attr, ctrl) {
-      ctrl.cases['?'] = (ctrl.cases['?'] || []);
-      ctrl.cases['?'].push({ transclude: transclude, element: element });
-    };
-  }
+  link: function(scope, element, attr, ctrl, $transclude) {
+    ctrl.cases['?'] = (ctrl.cases['?'] || []);
+    ctrl.cases['?'].push({ transclude: $transclude, element: element });
+   }
 });

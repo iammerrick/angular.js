@@ -151,6 +151,13 @@ describe('jqLite', function() {
       dealoc(element);
     });
 
+    it('should retrieve isolate scope attached to the current element', function() {
+      var element = jqLite('<i>foo</i>');
+      element.data('$isolateScope', scope);
+      expect(element.isolateScope()).toBe(scope);
+      dealoc(element);
+    });
+
     it('should retrieve scope attached to the html element if its requested on the document',
         function() {
       var doc = jqLite(document),
@@ -177,6 +184,33 @@ describe('jqLite', function() {
       var element = jqLite('<ul><li><p><b>deep deep</b><p></li></ul>');
       var deepChild = jqLite(element[0].getElementsByTagName('b')[0]);
       expect(deepChild.scope()).toBeFalsy();
+      dealoc(element);
+    });
+  });
+
+
+  describe('isolateScope', function() {
+
+    it('should retrieve isolate scope attached to the current element', function() {
+      var element = jqLite('<i>foo</i>');
+      element.data('$isolateScope', scope);
+      expect(element.isolateScope()).toBe(scope);
+      dealoc(element);
+    });
+
+
+    it('should not walk up the dom to find scope', function() {
+      var element = jqLite('<ul><li><p><b>deep deep</b><p></li></ul>');
+      var deepChild = jqLite(element[0].getElementsByTagName('b')[0]);
+      element.data('$isolateScope', scope);
+      expect(deepChild.isolateScope()).toBeUndefined();
+      dealoc(element);
+    });
+
+
+    it('should return undefined when no scope was found', function() {
+      var element = jqLite('<div></div>');
+      expect(element.isolateScope()).toBeFalsy();
       dealoc(element);
     });
   });
@@ -288,11 +322,22 @@ describe('jqLite', function() {
     });
 
 
-    it('should emit $destroy event if an element is removed via html()', inject(function(log) {
+    it('should emit $destroy event if an element is removed via html(\'\')', inject(function(log) {
       var element = jqLite('<div><span>x</span></div>');
       element.find('span').on('$destroy', log.fn('destroyed'));
 
       element.html('');
+
+      expect(element.html()).toBe('');
+      expect(log).toEqual('destroyed');
+    }));
+
+
+    it('should emit $destroy event if an element is removed via empty()', inject(function(log) {
+      var element = jqLite('<div><span>x</span></div>');
+      element.find('span').on('$destroy', log.fn('destroyed'));
+
+      element.empty();
 
       expect(element.html()).toBe('');
       expect(log).toEqual('destroyed');
@@ -752,13 +797,23 @@ describe('jqLite', function() {
     });
 
 
-    it('should read/write value', function() {
+    it('should read/write a value', function() {
       var element = jqLite('<div>abc</div>');
       expect(element.length).toEqual(1);
       expect(element[0].innerHTML).toEqual('abc');
       expect(element.html()).toEqual('abc');
       expect(element.html('xyz') == element).toBeTruthy();
       expect(element.html()).toEqual('xyz');
+    });
+  });
+
+
+  describe('empty', function() {
+    it('should write a value', function() {
+      var element = jqLite('<div>abc</div>');
+      expect(element.length).toEqual(1);
+      expect(element.empty() == element).toBeTruthy();
+      expect(element.html()).toEqual('');
     });
   });
 
@@ -1065,6 +1120,26 @@ describe('jqLite', function() {
     });
 
 
+    it('should deregister specific listener within the listener and call subsequent listeners', function() {
+      var aElem = jqLite(a),
+          clickSpy = jasmine.createSpy('click'),
+          clickOnceSpy = jasmine.createSpy('clickOnce').andCallFake(function() {
+            aElem.off('click', clickOnceSpy);
+          });
+
+      aElem.on('click', clickOnceSpy);
+      aElem.on('click', clickSpy);
+
+      browserTrigger(a, 'click');
+      expect(clickOnceSpy).toHaveBeenCalledOnce();
+      expect(clickSpy).toHaveBeenCalledOnce();
+
+      browserTrigger(a, 'click');
+      expect(clickOnceSpy).toHaveBeenCalledOnce();
+      expect(clickSpy.callCount).toBe(2);
+    });
+
+
     it('should deregister specific listener for multiple types separated by spaces', function() {
       var aElem = jqLite(a),
           masterSpy = jasmine.createSpy('master'),
@@ -1100,6 +1175,63 @@ describe('jqLite', function() {
         }).toThrowMatching(/\[jqLite:offargs\]/);
       });
     }
+  });
+
+  describe('one', function() {
+
+    it('should only fire the callback once', function() {
+      var element = jqLite(a);
+      var spy = jasmine.createSpy('click');
+
+      element.one('click', spy);
+
+      browserTrigger(element, 'click');
+      expect(spy).toHaveBeenCalledOnce();
+
+      browserTrigger(element, 'click');
+      expect(spy).toHaveBeenCalledOnce();
+    });
+
+    it('should deregister when off is called', function() {
+      var element = jqLite(a);
+      var spy = jasmine.createSpy('click');
+
+      element.one('click', spy);
+      element.off('click', spy);
+
+      browserTrigger(element, 'click');
+      expect(spy).not.toHaveBeenCalled();
+    });
+
+    it('should return the same event object just as on() does', function() {
+      var element = jqLite(a);
+      var eventA, eventB;
+      element.on('click', function(event) {
+        eventA = event;
+      });
+      element.one('click', function(event) {
+        eventB = event;
+      });
+
+      browserTrigger(element, 'click');
+      expect(eventA).toEqual(eventB);
+    });
+
+    it('should not remove other event handlers of the same type after execution', function() {
+      var element = jqLite(a);
+      var calls = [];
+      element.one('click', function(event) {
+        calls.push('one');
+      });
+      element.on('click', function(event) {
+        calls.push('on');
+      });
+
+      browserTrigger(element, 'click');
+      browserTrigger(element, 'click');
+
+      expect(calls).toEqual(['one','on','on']);
+    });
   });
 
 
@@ -1300,6 +1432,12 @@ describe('jqLite', function() {
       var innerDiv = root.find('div');
       expect(innerDiv.length).toEqual(1);
       expect(innerDiv.html()).toEqual('text');
+    });
+
+    it('should find child by name and not care about text nodes', function() {
+      var divs = jqLite('<div><span>aa</span></div>text<div><span>bb</span></div>');
+      var innerSpan = divs.find('span');
+      expect(innerSpan.length).toEqual(2);
     });
   });
 

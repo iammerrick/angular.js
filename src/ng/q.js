@@ -136,7 +136,7 @@
  *
  * # Differences between Kris Kowal's Q and $q
  *
- *  There are three main differences:
+ *  There are two main differences:
  *
  * - $q is integrated with the {@link ng.$rootScope.Scope} Scope model observation
  *   mechanism in angular, which means faster propagation of resolution or rejection into your
@@ -165,7 +165,7 @@
  *      // Propagate promise resolution to 'then' functions using $apply().
  *      $rootScope.$apply();
  *      expect(resolvedValue).toEqual(123);
- *    });
+ *    }));
  *  </pre>
  */
 function $QProvider() {

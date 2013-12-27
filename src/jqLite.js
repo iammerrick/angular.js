@@ -46,6 +46,7 @@
  * - [`contents()`](http://api.jquery.com/contents/)
  * - [`css()`](http://api.jquery.com/css/)
  * - [`data()`](http://api.jquery.com/data/)
+ * - [`empty()`](http://api.jquery.com/empty/)
  * - [`eq()`](http://api.jquery.com/eq/)
  * - [`find()`](http://api.jquery.com/find/) - Limited to lookups by tag name
  * - [`hasClass()`](http://api.jquery.com/hasClass/)
@@ -53,6 +54,7 @@
  * - [`next()`](http://api.jquery.com/next/) - Does not support selectors
  * - [`on()`](http://api.jquery.com/on/) - Does not support namespaces, selectors or eventData
  * - [`off()`](http://api.jquery.com/off/) - Does not support namespaces or selectors
+ * - [`one()`](http://api.jquery.com/one/) - Does not support namespaces or selectors
  * - [`parent()`](http://api.jquery.com/parent/) - Does not support selectors
  * - [`prepend()`](http://api.jquery.com/prepend/)
  * - [`prop()`](http://api.jquery.com/prop/)
@@ -85,6 +87,9 @@
  * - `injector()` - retrieves the injector of the current element or its parent.
  * - `scope()` - retrieves the {@link api/ng.$rootScope.Scope scope} of the current
  *   element or its parent.
+ * - `isolateScope()` - retrieves an isolate {@link api/ng.$rootScope.Scope scope} if one is attached directly to the
+ *   current element. This getter should be used only on elements that contain a directive which starts a new isolate
+ *   scope. Calling `scope()` on this element always returns the original non-isolate scope.
  * - `inheritedData()` - same as `data()`, but walks up the DOM until a value is found or the top
  *   parent element is reached.
  *
@@ -344,10 +349,23 @@ function jqLiteInheritedData(element, name, value) {
   if(element[0].nodeType == 9) {
     element = element.find('html');
   }
+  var names = isArray(name) ? name : [name];
 
   while (element.length) {
-    if ((value = element.data(name)) !== undefined) return value;
+
+    for (var i = 0, ii = names.length; i < ii; i++) {
+      if ((value = element.data(names[i])) !== undefined) return value;
+    }
     element = element.parent();
+  }
+}
+
+function jqLiteEmpty(element) {
+  for (var i = 0, childNodes = element.childNodes; i < childNodes.length; i++) {
+    jqLiteDealoc(childNodes[i]);
+  }
+  while (element.firstChild) {
+    element.removeChild(element.firstChild);
   }
 }
 
@@ -418,7 +436,13 @@ forEach({
   inheritedData: jqLiteInheritedData,
 
   scope: function(element) {
-    return jqLiteInheritedData(element, '$scope');
+    // Can't use jqLiteData here directly so we stay compatible with jQuery!
+    return jqLite(element).data('$scope') || jqLiteInheritedData(element.parentNode || element, ['$isolateScope', '$scope']);
+  },
+
+  isolateScope: function(element) {
+    // Can't use jqLiteData here directly so we stay compatible with jQuery!
+    return jqLite(element).data('$isolateScope') || jqLite(element).data('$isolateScopeNoTemplate');
   },
 
   controller: jqLiteController ,
@@ -539,7 +563,9 @@ forEach({
       jqLiteDealoc(childNodes[i]);
     }
     element.innerHTML = value;
-  }
+  },
+
+  empty: jqLiteEmpty
 }, function(fn, name){
   /**
    * Properties: writes return selection, reads return first value
@@ -549,11 +575,13 @@ forEach({
 
     // jqLiteHasClass has only two arguments, but is a getter-only fn, so we need to special-case it
     // in a way that survives minification.
-    if (((fn.length == 2 && (fn !== jqLiteHasClass && fn !== jqLiteController)) ? arg1 : arg2) === undefined) {
+    // jqLiteEmpty takes no arguments but is a setter.
+    if (fn !== jqLiteEmpty &&
+        (((fn.length == 2 && (fn !== jqLiteHasClass && fn !== jqLiteController)) ? arg1 : arg2) === undefined)) {
       if (isObject(arg1)) {
 
         // we are a write, but the object properties are the key/values
-        for(i=0; i < this.length; i++) {
+        for (i = 0; i < this.length; i++) {
           if (fn === jqLiteData) {
             // data() takes the whole object in jQuery
             fn(this[i], arg1);
@@ -578,7 +606,7 @@ forEach({
       }
     } else {
       // we are a write, so apply to all children
-      for(i=0; i < this.length; i++) {
+      for (i = 0; i < this.length; i++) {
         fn(this[i], arg1, arg2);
       }
       // return self for chaining
@@ -618,7 +646,10 @@ function createEventHandler(element, events) {
       return event.defaultPrevented || event.returnValue === false;
     };
 
-    forEach(events[type || event.type], function(fn) {
+    // Copy event handlers in case event handlers array is modified during execution.
+    var eventHandlersCopy = shallowCopy(events[type || event.type] || []);
+
+    forEach(eventHandlersCopy, function(fn) {
       fn.call(element, event);
     });
 
@@ -713,6 +744,19 @@ forEach({
   },
 
   off: jqLiteOff,
+
+  one: function(element, type, fn) {
+    element = jqLite(element);
+
+    //add the listener twice so that when it is called
+    //you can remove the original function and still be
+    //able to call element.off(ev, fn) normally
+    element.on(type, function onFn() {
+      element.off(type, fn);
+      element.off(type, onFn);
+    });
+    element.on(type, fn);
+  },
 
   replaceWith: function(element, replaceNode) {
     var index, parent = element.parentNode;
@@ -809,7 +853,11 @@ forEach({
   },
 
   find: function(element, selector) {
-    return element.getElementsByTagName(selector);
+    if (element.getElementsByTagName) {
+      return element.getElementsByTagName(selector);
+    } else {
+      return [];
+    }
   },
 
   clone: jqLiteClone,

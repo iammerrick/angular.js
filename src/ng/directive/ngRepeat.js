@@ -99,7 +99,7 @@
  *     For example: `item in items track by $id(item)`. A built in `$id()` function can be used to assign a unique
  *     `$$hashKey` property to each item in the array. This property is then used as a key to associated DOM elements
  *     with the corresponding item in the array by identity. Moving the same object in array would move the DOM
- *     element in the same way ian the DOM.
+ *     element in the same way in the DOM.
  *
  *     For example: `item in items track by item.id` is a typical pattern when the items come from the database. In this
  *     case the object identity does not matter. Two objects are considered equivalent as long as their `id`
@@ -140,49 +140,35 @@
         border:1px solid black;
         list-style:none;
         margin:0;
-        padding:0;
+        padding:0 10px;
       }
 
-      .example-animate-container > li {
-        padding:10px;
+      .animate-repeat {
+        line-height:40px;
         list-style:none;
+        box-sizing:border-box;
       }
 
+      .animate-repeat.ng-move,
       .animate-repeat.ng-enter,
-      .animate-repeat.ng-leave,
-      .animate-repeat.ng-move {
+      .animate-repeat.ng-leave {
         -webkit-transition:all linear 0.5s;
-        -moz-transition:all linear 0.5s;
-        -o-transition:all linear 0.5s;
         transition:all linear 0.5s;
       }
 
+      .animate-repeat.ng-leave.ng-leave-active,
+      .animate-repeat.ng-move,
       .animate-repeat.ng-enter {
-        line-height:0;
         opacity:0;
-        padding-top:0;
-        padding-bottom:0;
+        max-height:0;
       }
+
+      .animate-repeat.ng-leave,
+      .animate-repeat.ng-move.ng-move-active,
       .animate-repeat.ng-enter.ng-enter-active {
-        line-height:20px;
         opacity:1;
-        padding:10px;
+        max-height:40px;
       }
-
-      .animate-repeat.ng-leave {
-        opacity:1;
-        line-height:20px;
-        padding:10px;
-      }
-      .animate-repeat.ng-leave.ng-leave-active {
-        opacity:0;
-        line-height:0;
-        padding-top:0;
-        padding-bottom:0;
-      }
-
-      .animate-repeat.ng-move { }
-      .animate-repeat.ng-move.ng-move-active { }
     </file>
     <file name="scenario.js">
        it('should render initial data set', function() {
@@ -215,10 +201,9 @@ var ngRepeatDirective = ['$parse', '$animate', function($parse, $animate) {
     priority: 1000,
     terminal: true,
     $$tlb: true,
-    compile: function(element, attr, linker) {
-      return function($scope, $element, $attr){
+    link: function($scope, $element, $attr, ctrl, $transclude){
         var expression = $attr.ngRepeat;
-        var match = expression.match(/^\s*(.+)\s+in\s+(.*?)\s*(\s+track\s+by\s+(.+)\s*)?$/),
+        var match = expression.match(/^\s*(.+)\s+in\s+([\r\n\s\S]*?)\s*(\s+track\s+by\s+(.+)\s*)?$/),
           trackByExp, trackByExpGetter, trackByIdExpFn, trackByIdArrayFn, trackByIdObjFn,
           lhs, rhs, valueIdentifier, keyIdentifier,
           hashFnLocals = {$id: hashKey};
@@ -316,7 +301,7 @@ var ngRepeatDirective = ['$parse', '$animate', function($parse, $animate) {
            } else if (nextBlockMap.hasOwnProperty(trackById)) {
              // restore lastBlockMap
              forEach(nextBlockOrder, function(block) {
-               if (block && block.startNode) lastBlockMap[block.id] = block;
+               if (block && block.scope) lastBlockMap[block.id] = block;
              });
              // This is a duplicate and we need to throw an error
              throw ngRepeatMinErr('dupes', "Duplicates in a repeater are not allowed. Use 'track by' expression to specify unique keys. Repeater: {0}, Duplicate key: {1}",
@@ -333,7 +318,7 @@ var ngRepeatDirective = ['$parse', '$animate', function($parse, $animate) {
             // lastBlockMap is our own object so we don't need to use special hasOwnPropertyFn
             if (lastBlockMap.hasOwnProperty(key)) {
               block = lastBlockMap[key];
-              elementsToRemove = getBlockElements(block);
+              elementsToRemove = getBlockElements(block.clone);
               $animate.leave(elementsToRemove);
               forEach(elementsToRemove, function(element) { element[NG_REMOVED] = true; });
               block.scope.$destroy();
@@ -345,9 +330,9 @@ var ngRepeatDirective = ['$parse', '$animate', function($parse, $animate) {
             key = (collection === collectionKeys) ? index : collectionKeys[index];
             value = collection[key];
             block = nextBlockOrder[index];
-            if (nextBlockOrder[index - 1]) previousNode = nextBlockOrder[index - 1].endNode;
+            if (nextBlockOrder[index - 1]) previousNode = getBlockEnd(nextBlockOrder[index - 1]);
 
-            if (block.startNode) {
+            if (block.scope) {
               // if we have already seen this object, then we need to reuse the
               // associated scope/element
               childScope = block.scope;
@@ -357,11 +342,11 @@ var ngRepeatDirective = ['$parse', '$animate', function($parse, $animate) {
                 nextNode = nextNode.nextSibling;
               } while(nextNode && nextNode[NG_REMOVED]);
 
-              if (block.startNode != nextNode) {
+              if (getBlockStart(block) != nextNode) {
                 // existing item which got moved
-                $animate.move(getBlockElements(block), null, jqLite(previousNode));
+                $animate.move(getBlockElements(block.clone), null, jqLite(previousNode));
               }
-              previousNode = block.endNode;
+              previousNode = getBlockEnd(block);
             } else {
               // new item which we don't know about
               childScope = $scope.$new();
@@ -377,22 +362,31 @@ var ngRepeatDirective = ['$parse', '$animate', function($parse, $animate) {
             childScope.$odd = !(childScope.$even = (index&1) === 0);
             // jshint bitwise: true
 
-            if (!block.startNode) {
-              linker(childScope, function(clone) {
+            if (!block.scope) {
+              $transclude(childScope, function(clone) {
                 clone[clone.length++] = document.createComment(' end ngRepeat: ' + expression + ' ');
                 $animate.enter(clone, null, jqLite(previousNode));
                 previousNode = clone;
                 block.scope = childScope;
-                block.startNode = previousNode && previousNode.endNode ? previousNode.endNode : clone[0];
-                block.endNode = clone[clone.length - 1];
+                // Note: We only need the first/last node of the cloned nodes.
+                // However, we need to keep the reference to the jqlite wrapper as it might be changed later
+                // by a directive with templateUrl when it's template arrives.
+                block.clone = clone;
                 nextBlockMap[block.id] = block;
               });
             }
           }
           lastBlockMap = nextBlockMap;
         });
-      };
     }
   };
+
+  function getBlockStart(block) {
+    return block.clone[0];
+  }
+
+  function getBlockEnd(block) {
+    return block.clone[block.clone.length - 1];
+  }
 }];
 

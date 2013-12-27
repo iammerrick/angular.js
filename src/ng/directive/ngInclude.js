@@ -51,8 +51,8 @@
        </select>
        url of the template: <tt>{{template.url}}</tt>
        <hr/>
-       <div class="example-animate-container">
-         <div class="include-example" ng-include="template.url"></div>
+       <div class="slide-animate-container">
+         <div class="slide-animate" ng-include="template.url"></div>
        </div>
      </div>
     </file>
@@ -71,7 +71,7 @@
       Content of template2.html
     </file>
     <file name="animations.css">
-      .example-animate-container {
+      .slide-animate-container {
         position:relative;
         background:white;
         border:1px solid black;
@@ -79,14 +79,12 @@
         overflow:hidden;
       }
 
-      .example-animate-container > div {
+      .slide-animate {
         padding:10px;
       }
 
-      .include-example.ng-enter, .include-example.ng-leave {
+      .slide-animate.ng-enter, .slide-animate.ng-leave {
         -webkit-transition:all cubic-bezier(0.250, 0.460, 0.450, 0.940) 0.5s;
-        -moz-transition:all cubic-bezier(0.250, 0.460, 0.450, 0.940) 0.5s;
-        -o-transition:all cubic-bezier(0.250, 0.460, 0.450, 0.940) 0.5s;
         transition:all cubic-bezier(0.250, 0.460, 0.450, 0.940) 0.5s;
 
         position:absolute;
@@ -98,17 +96,17 @@
         padding:10px;
       }
 
-      .include-example.ng-enter {
+      .slide-animate.ng-enter {
         top:-50px;
       }
-      .include-example.ng-enter.ng-enter-active {
+      .slide-animate.ng-enter.ng-enter-active {
         top:0;
       }
 
-      .include-example.ng-leave {
+      .slide-animate.ng-leave {
         top:0;
       }
-      .include-example.ng-leave.ng-leave-active {
+      .slide-animate.ng-leave.ng-leave-active {
         top:50px;
       }
     </file>
@@ -149,19 +147,20 @@
  * @description
  * Emitted every time the ngInclude content is reloaded.
  */
-var ngIncludeDirective = ['$http', '$templateCache', '$anchorScroll', '$compile', '$animate', '$sce',
-                  function($http,   $templateCache,   $anchorScroll,   $compile,   $animate,   $sce) {
+var ngIncludeDirective = ['$http', '$templateCache', '$anchorScroll', '$animate', '$sce',
+                  function($http,   $templateCache,   $anchorScroll,   $animate,   $sce) {
   return {
     restrict: 'ECA',
     priority: 400,
     terminal: true,
     transclude: 'element',
-    compile: function(element, attr, transclusion) {
+    controller: angular.noop,
+    compile: function(element, attr) {
       var srcExp = attr.ngInclude || attr.src,
           onloadExp = attr.onload || '',
           autoScrollExp = attr.autoscroll;
 
-      return function(scope, $element) {
+      return function(scope, $element, $attr, ctrl, $transclude) {
         var changeCounter = 0,
             currentScope,
             currentElement;
@@ -178,39 +177,63 @@ var ngIncludeDirective = ['$http', '$templateCache', '$anchorScroll', '$compile'
         };
 
         scope.$watch($sce.parseAsResourceUrl(srcExp), function ngIncludeWatchAction(src) {
+          var afterAnimation = function() {
+            if (isDefined(autoScrollExp) && (!autoScrollExp || scope.$eval(autoScrollExp))) {
+              $anchorScroll();
+            }
+          };
           var thisChangeId = ++changeCounter;
 
           if (src) {
             $http.get(src, {cache: $templateCache}).success(function(response) {
               if (thisChangeId !== changeCounter) return;
               var newScope = scope.$new();
+              ctrl.template = response;
 
-              transclusion(newScope, function(clone) {
+              // Note: This will also link all children of ng-include that were contained in the original
+              // html. If that content contains controllers, ... they could pollute/change the scope.
+              // However, using ng-include on an element with additional content does not make sense...
+              // Note: We can't remove them in the cloneAttchFn of $transclude as that
+              // function is called before linking the content, which would apply child
+              // directives to non existing elements.
+              var clone = $transclude(newScope, function(clone) {
                 cleanupLastIncludeContent();
-
-                currentScope = newScope;
-                currentElement = clone;
-
-                currentElement.html(response);
-                $animate.enter(currentElement, null, $element);
-                $compile(currentElement.contents())(currentScope);
-
-                if (isDefined(autoScrollExp) && (!autoScrollExp || scope.$eval(autoScrollExp))) {
-                  $anchorScroll();
-                }
-
-                currentScope.$emit('$includeContentLoaded');
-                scope.$eval(onloadExp);
+                $animate.enter(clone, null, $element, afterAnimation);
               });
+
+              currentScope = newScope;
+              currentElement = clone;
+
+              currentScope.$emit('$includeContentLoaded');
+              scope.$eval(onloadExp);
             }).error(function() {
               if (thisChangeId === changeCounter) cleanupLastIncludeContent();
             });
             scope.$emit('$includeContentRequested');
           } else {
             cleanupLastIncludeContent();
+            ctrl.template = null;
           }
         });
       };
     }
   };
 }];
+
+// This directive is called during the $transclude call of the first `ngInclude` directive.
+// It will replace and compile the content of the element with the loaded template.
+// We need this directive so that the element content is already filled when
+// the link function of another directive on the same element as ngInclude
+// is called.
+var ngIncludeFillContentDirective = ['$compile',
+  function($compile) {
+    return {
+      restrict: 'ECA',
+      priority: -400,
+      require: 'ngInclude',
+      link: function(scope, $element, $attr, ctrl) {
+        $element.html(ctrl.template);
+        $compile($element.contents())(scope);
+      }
+    };
+  }];

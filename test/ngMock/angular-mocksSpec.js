@@ -1,10 +1,7 @@
 'use strict';
 
-var msie = +((/msie (\d+)/.exec(navigator.userAgent.toLowerCase()) || [])[1]);
-
 describe('ngMock', function() {
   var noop = angular.noop;
-
 
   describe('TzDate', function() {
 
@@ -686,10 +683,10 @@ describe('ngMock', function() {
       expect(d($rootScope)).toMatch(/{"abc":"123"}/);
     }));
 
-    it('should serialize scope that has overridden "hasOwnProperty"', inject(function($rootScope){
+    it('should serialize scope that has overridden "hasOwnProperty"', inject(function($rootScope, $sniffer){
       // MS IE8 just doesn't work for this kind of thing, since "for ... in" doesn't return
       // things like hasOwnProperty even if it is explicitly defined on the actual object!
-      if (msie<=8) return;
+      if ($sniffer.msie<=8) return;
       $rootScope.hasOwnProperty = 'X';
       expect(d($rootScope)).toMatch(/Scope\(.*\): \{/);
       expect(d($rootScope)).toMatch(/hasOwnProperty: "X"/);
@@ -769,7 +766,7 @@ describe('ngMock', function() {
 
       describe('object literal format', function() {
         var mock = { log: 'module' };
-        
+
         beforeEach(function() {
           module({
               'service': mock,
@@ -785,7 +782,7 @@ describe('ngMock', function() {
             expect(service).toEqual(mock);
           });
         });
-        
+
         it('should support multiple key value pairs', function() {
           inject(function(service, other) {
             expect(other.some).toEqual('replacement');
@@ -894,6 +891,32 @@ describe('ngMock', function() {
     });
 
 
+    it('should respond with a copy of the mock data', function() {
+      var mockObject = {a: 'b'};
+
+      hb.when('GET', '/url1').respond(200, mockObject, {});
+
+      callback.andCallFake(function(status, response) {
+        expect(status).toBe(200);
+        expect(response).toEqual({a: 'b'});
+        expect(response).not.toBe(mockObject);
+        response.a = 'c';
+      });
+
+      hb('GET', '/url1', null, callback);
+      hb.flush();
+      expect(callback).toHaveBeenCalledOnce();
+
+      // Fire it again and verify that the returned mock data has not been
+      // modified.
+      callback.reset();
+      hb('GET', '/url1', null, callback);
+      hb.flush();
+      expect(callback).toHaveBeenCalledOnce();
+      expect(mockObject).toEqual({a: 'b'});
+    });
+
+
     it('should throw error when unexpected request', function() {
       hb.when('GET', '/url1').respond(200, 'content');
       expect(function() {
@@ -931,6 +954,29 @@ describe('ngMock', function() {
       hb.when('GET', '/a/b').respond(202, 'content2');
 
       hb('GET', '/a/b', '{a: true}', function(status, response) {
+        expect(status).toBe(201);
+        expect(response).toBe('content1');
+      });
+
+      hb('GET', '/a/b', null, function(status, response) {
+        expect(status).toBe(202);
+        expect(response).toBe('content2');
+      });
+
+      hb.flush();
+    });
+
+
+    it('should match data object if specified', function() {
+      hb.when('GET', '/a/b', {a: 1, b: 2}).respond(201, 'content1');
+      hb.when('GET', '/a/b').respond(202, 'content2');
+
+      hb('GET', '/a/b', '{"a":1,"b":2}', function(status, response) {
+        expect(status).toBe(201);
+        expect(response).toBe('content1');
+      });
+
+      hb('GET', '/a/b', '{"b":2,"a":1}', function(status, response) {
         expect(status).toBe(201);
         expect(response).toBe('content1');
       });
@@ -1072,6 +1118,32 @@ describe('ngMock', function() {
           hb('GET', '/match', 'different', noop, {});
         }).toThrow('Expected GET /match with different data\n' +
                    'EXPECTED: some-data\nGOT:      different');
+      });
+
+
+      it ('should not throw an exception when parsed body is equal to expected body object', function() {
+        hb.when('GET').respond(200, '', {});
+
+        hb.expect('GET', '/match', {a: 1, b: 2});
+        expect(function() {
+          hb('GET', '/match', '{"a":1,"b":2}', noop, {});
+        }).not.toThrow();
+
+        hb.expect('GET', '/match', {a: 1, b: 2});
+        expect(function() {
+          hb('GET', '/match', '{"b":2,"a":1}', noop, {});
+        }).not.toThrow();
+      });
+
+
+      it ('should throw exception when only parsed body differs from expected body object', function() {
+        hb.when('GET').respond(200, '', {});
+        hb.expect('GET', '/match', {a: 1, b: 2});
+
+        expect(function() {
+          hb('GET', '/match', '{"a":1,"b":3}', noop, {});
+        }).toThrow('Expected GET /match with different data\n' +
+                   'EXPECTED: {"a":1,"b":2}\nGOT:      {"a":1,"b":3}');
       });
 
 
